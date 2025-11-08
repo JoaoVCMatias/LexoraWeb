@@ -1,4 +1,5 @@
 import sys
+import httpx
 from pathlib import Path
 from nicegui import ui, app
 
@@ -18,26 +19,59 @@ except Exception as e:
     sys.exit(1)
 
 LOGO_PATH = '/images/logo.png'
+API_LOGIN_URL = "https://lexora-api.onrender.com/usuarios/Login"
 
-def handle_login():
+
+async def handle_login():
     email = email_input.value
     password = password_input.value
     
     if not email or not password:
         ui.notify('Por favor, preencha o E-mail e a Senha.', color='negative')
         return
-    print(f"Tentando login com E-mail: {email}")
-    ui.notify(f'Tentando login com {email}...', color='positive')
-    
+
+    login_data = {
+        "email": email,
+        "senha": password 
+    }
+
+    try:
+
+        async with httpx.AsyncClient() as client:
+            print(f"Enviando para API: {login_data}")
+            
+            response = await client.post(API_LOGIN_URL, json=login_data)
+            response.raise_for_status() 
+            api_response_data = response.json()
+            
+            ui.notify('Login realizado com sucesso!', color='positive')
+            
+            print(f"Resposta da API: {api_response_data}")
+
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 401 or e.response.status_code == 404:
+            ui.notify('E-mail ou senha inválidos.', color='negative')
+        else:
+            ui.notify(f'Erro da API: {e.response.status_code}', color='negative')
+        print(f"Erro HTTP: {e}")
+        
+    except httpx.RequestError as e:
+        ui.notify('deu ruim na api.', color='negative')
+        print(f"Erro de Rede: {e}")
+        
+    except Exception as e:
+        ui.notify(f'ocorreu um erro inesperado: {e}', color='negative')
+        print(f"Erro Inesperado: {e}")
+
+
 def go_to_signup():
     print("Navegando para a página de cadastro")
-    ui.notify('Indo para a página de cadastro...', color='info')
 
+    ui.notify('Indo para a página de cadastro...', color='info')
 
 ui.query('body').style(f'background-color: #FFFFFF; overflow: hidden;')
 
 with ui.row().classes('w-full h-screen justify-center items-center'):
-
     with ui.column().classes('gap-y-2 items-center'):
         
         ui.image(LOGO_PATH).classes('w-28 mb-4')
