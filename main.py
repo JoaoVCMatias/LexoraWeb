@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from nicegui import ui
 from PythonPages.homepage import HomePage
 from PythonPages.cadastro import Cadastro
+from PythonPages.login import Login
 
 # Cria o app FastAPI
 app = FastAPI()
@@ -14,6 +15,10 @@ def homepage():
 @ui.page('/cadastro')
 def cadastro_page():
     Cadastro().render()
+
+@ui.page('/login')
+def login_page():
+    Login().render()
 
 # Conecta o NiceGUI com o app FastAPI
 ui.run_with(app)
