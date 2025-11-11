@@ -11,7 +11,7 @@ class Login:
     def __init__(self):
         """Inicializa o layout e os componentes da tela de login."""
         self.configure_static_paths()
-        self.build_ui()
+        self.render()
 
     @staticmethod
     def configure_static_paths():
@@ -74,7 +74,7 @@ class Login:
         """Redireciona para a página de cadastro."""
         ui.notify('Indo para a página de cadastro...', color='info')
 
-    def build_ui(self):
+    def render(self):
         """Monta a interface visual do login."""
         ui.query('body').style(f'background-color: #FFFFFF; overflow: hidden;')
 

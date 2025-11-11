@@ -13,6 +13,7 @@ class HomePage:
         ui.run_javascript("window.location.href = '/cadastro';")
 
     def handle_go_to_login(self):
+        ui.run_javascript("window.location.href = '/login';")
         ui.notify('Indo para a página de login...')
 
     def render(self):
