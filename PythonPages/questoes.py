@@ -5,7 +5,7 @@ from nicegui import app, ui
 
 API_BASE_URL = "https://lexora-api.onrender.com"
 #TOKEN MANUAL(ALTERAR PRA USAR EM TODAS AS PAGINAS)
-TOKEN_FIXO = "".strip()
+TOKEN_FIXO = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZF91c3VhcmlvIjoxLCJleHAiOjE3NjkxMzI4MDR9.SpGJ6Y7_8hTS2sL0U1ZfYfndg1j320vGK0ax0Lm-rTk".strip()
 
 base_dir = os.path.dirname(os.path.abspath(__file__))
 images_dir = os.path.join(base_dir, '../Images')

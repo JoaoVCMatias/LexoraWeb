@@ -9,30 +9,24 @@ class Login:
     API_LOGIN_URL = "https://lexora-api.onrender.com/usuarios/Login"
 
     def __init__(self):
-        """Inicializa o layout e os componentes da tela de login."""
         self.configure_static_paths()
-        self.render()
 
     @staticmethod
     def configure_static_paths():
-        """Configura o caminho das imagens estáticas."""
         try:
             script_dir = Path(__file__).parent.resolve()
             root_dir = script_dir.parent
             images_dir = root_dir / 'images'
 
             if not images_dir.is_dir():
-                raise FileNotFoundError(f"Diretório de imagens não encontrado em: {images_dir}")
-
+                print(f"Aviso: Diretório de imagens não encontrado em: {images_dir}", file=sys.stderr)
+                return
             app.add_static_files('/images', str(images_dir))
 
         except Exception as e:
-            print(f"Erro crítico ao configurar os caminhos estáticos: {e}", file=sys.stderr)
-            print("Verifique se a estrutura de pastas está correta.", file=sys.stderr)
-            sys.exit(1)
+            print(f"Erro ao configurar caminhos: {e}", file=sys.stderr)
 
     async def handle_login(self):
-        """Envia o login para a API e trata respostas."""
         email = self.email_input.value
         password = self.password_input.value
 
@@ -71,7 +65,7 @@ class Login:
             print(f"Erro Inesperado: {e}")
 
     def go_to_signup(self):
-        """Redireciona para a página de cadastro."""
+        """Mostra redirecionar para a página de cadastro."""
         ui.notify('Indo para a página de cadastro...', color='info')
 
     def render(self):

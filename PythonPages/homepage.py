@@ -34,7 +34,7 @@ class HomePage:
                     .props('outline rounded color=\"grey-7\"')
 
         ui.image(self.HOMEPAGE_IMG_PATH) \
-            .classes('max-w-lg') \
+            .classes('max-w-xs') \
             .style('position: absolute; bottom: 0; right: 0px;')
 
 
