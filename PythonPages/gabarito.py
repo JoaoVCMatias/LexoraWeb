@@ -105,7 +105,6 @@ class Gabarito:
                 if candidatos:
                     escolhido = None
                     if id_filtro:
-                        # Busca exata (convertendo tudo para string para garantir)
                         escolhido = next((c for c in candidatos if str(c['id_conjunto']) == str(id_filtro)), None)
                     
                     if not escolhido:
@@ -115,7 +114,7 @@ class Gabarito:
                     self.stats = escolhido
                     self.dados_formatados = escolhido['questoes_ui']
                 else:
-                    self.dados_formatados = [] # Garante lista vazia se não achar nada
+                    self.dados_formatados = [] 
         except Exception as e:
             print(f"Erro Gabarito: {e}")
         finally:
@@ -141,11 +140,10 @@ class Gabarito:
                     with ui.column().classes('gap-1'):
                         ui.label('Gabarito da atividade').classes('text-xl md:text-2xl font-bold text-black')
                         
-                        id_c = self.stats.get('id_conjunto', 'N/A')
                         pts = self.stats.get('pontos', 0)
                         pct = self.stats.get('porcentagem', 0)
                         
-                        ui.label(f"ID Prova: {id_c} | Acertos: {pts} ({pct}%)").classes('text-base md:text-lg text-blue-600 font-bold')
+                        ui.label(f"Acertos: {pts} ({pct}%)").classes('text-base md:text-lg text-blue-600 font-bold')
                     ui.button(icon='close', on_click=lambda: ui.navigate.to('/')).props('flat round dense')
 
                 if self.loading:
