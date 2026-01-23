@@ -1,70 +1,123 @@
 from nicegui import ui, app
 from pathlib import Path
+import httpx
 
+API_BASE_URL = "https://lexora-api.onrender.com"
+
+# Configuração de Imagens
 base_dir = Path(__file__).parent
 images_path = (base_dir / '../images').resolve()
+if images_path.exists():
+    try: app.add_static_files('/images', str(images_path))
+    except: pass
 
-if not images_path.exists():
-    print(f"AVISO CRÍTICO: A pasta de imagens não foi encontrada em: {images_path}")
+class TarefaConcluida:
+    def __init__(self):
+        self.token = app.storage.user.get('token')
+        self.dados = {
+            "pontos": "...",
+            "precisao": "...",
+            "tempo": "...",
+            "sequencia": "..."
+        }
+        self.loading = True
 
-app.add_static_files('/images', images_path)
-
-task_result_data = {
-    "title": "Tarefa concluída com sucesso!",
-    "subtitle": "Parabéns pela tarefa bem sucedida, você pode ver mais detalhes sobre o resultado da atividade ou ir direto para a página inicial.",
-    "stats": {
-        "time_value": "01:56",
-        "time_label": "Você é a velocidade!",
-        "points_value": "526",
-        "points_label": "Pontos recebidos",
-        "accuracy_value": "78%",
-        "accuracy_label": "Taxa de acertos",
-        "streak_value": "4",
-        "streak_label": "Acertos em sequência"
-    }
-}
-
-
-@ui.page('/')
-def task_completed_page():
-
-    with ui.column().classes('w-full min-h-screen bg-gray-50 items-center p-4'):
+    async def fetch_stats(self, id_prova):
+        if not id_prova or not self.token:
+            self.loading = False
+            return
         
-        with ui.row().classes('w-full max-w-6xl justify-between items-center mb-8'):
+        try:
+            headers = {"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"}
+            async with httpx.AsyncClient(headers=headers) as client:
+                response = await client.get(f"{API_BASE_URL}/Questao/RelatorioDesempenho")
+                if response.status_code == 200:
+                    lista = response.json()
+                    alvo = next((item for item in lista if str(item.get('id_conjunto_questao')) == str(id_prova)), None)
+                    
+                    if alvo:
+                        # 1. Pontos
+                        pt = alvo.get('pontos', 0)
+                        self.dados["pontos"] = str(int(pt))
 
-            ui.image('/images/logo.png').classes('w-24 md:w-32') 
+                        self.dados["precisao"] = f"{alvo.get('porcentagem_acerto', 0)}%"
+                        
+                        tempo_cru = str(alvo.get('tempo', '00:00:00')).split('.')[0] # Remove milissegundos
+                        partes = tempo_cru.split(':')
+                        
+                        try:
+                            if len(partes) == 3:
+                                h = int(partes[0])
+                                m = int(partes[1])
+                                s = int(partes[2])
+                                
+                                if h > 0:
+                                    self.dados["tempo"] = f"{h}:{m:02}:{s:02}"
+                                else:
+                                    self.dados["tempo"] = f"{m:02}:{s:02}"
+                            
+                            elif len(partes) == 2:
+                                m = int(partes[0])
+                                s = int(partes[1])
+                                self.dados["tempo"] = f"{m:02}:{s:02}"
+                            
+                            else:
+                                self.dados["tempo"] = tempo_cru
+                        except:
+                            # Fallback se der erro na conversão
+                            self.dados["tempo"] = tempo_cru
+                        
+                        # 4. Sequência
+                        self.dados["sequencia"] = str(alvo.get('sequencia_acerto', 0))
 
-        with ui.card().classes('w-full max-w-5xl bg-white rounded-2xl shadow-sm p-8 md:p-16 items-center text-center'):
+        except Exception as e:
+            print(f"Erro ao buscar stats: {e}")
+        finally:
+            self.loading = False
+            self.layout.refresh()
 
-            ui.label(task_result_data['title']).classes('text-2xl md:text-4xl font-bold text-black mb-4')
-            ui.label(task_result_data['subtitle']).classes('text-gray-500 max-w-3xl text-sm md:text-lg leading-relaxed mb-10')
+    def render(self, id: str = None):
+        self.id_prova = id
+        if self.loading:
+            ui.timer(0.1, lambda: self.fetch_stats(id), once=True)
+        self.layout()
 
-            ui.image('/images/tarefa.png').classes('w-full max-w-sm md:max-w-md mb-12 h-auto')
+    @ui.refreshable
+    def layout(self):
+        ui.query('body').style('background-color: #f9fafb;')
+        
+        with ui.column().classes('w-full min-h-screen items-center p-4'):
+            
+            with ui.row().classes('w-full max-w-6xl justify-between items-center mb-8'):
+                ui.image('/images/logo.png').classes('w-24 md:w-32').props('fit=contain')
 
-            with ui.grid().classes('w-full max-w-4xl grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 mb-12'):
+            with ui.card().classes('w-full max-w-5xl bg-white rounded-2xl shadow-sm p-8 md:p-16 items-center text-center'):
+                
+                ui.label("Tarefa concluída com sucesso!").classes('text-2xl md:text-4xl font-bold text-black mb-4')
+                ui.label("Parabéns! Veja abaixo seu desempenho nesta atividade.").classes('text-gray-500 max-w-3xl text-sm md:text-lg mb-10')
 
-                with ui.column().classes('bg-blue-50 rounded-2xl p-6 items-center justify-center gap-1'):
-                    ui.label(task_result_data['stats']['time_value']).classes('text-3xl md:text-4xl font-bold text-blue-900')
-                    ui.label(task_result_data['stats']['time_label']).classes('text-xs md:text-sm text-gray-600 font-medium')
+                ui.image('/images/tarefa.png').classes('w-full max-w-sm md:max-w-md mb-12 h-auto')
 
-                with ui.column().classes('bg-blue-50 rounded-2xl p-6 items-center justify-center gap-1'):
-                    ui.label(task_result_data['stats']['points_value']).classes('text-3xl md:text-4xl font-bold text-blue-900')
-                    ui.label(task_result_data['stats']['points_label']).classes('text-xs md:text-sm text-gray-600 font-medium')
+                if self.loading:
+                    ui.spinner('dots', size='lg')
+                else:
+                    with ui.grid().classes('w-full max-w-4xl grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 mb-12'):
+                        
+                        def stat_card(valor, label):
+                            with ui.column().classes('bg-blue-50 rounded-2xl p-6 items-center justify-center gap-1'):
+                                ui.label(valor).classes('text-3xl md:text-4xl font-bold text-blue-900')
+                                ui.label(label).classes('text-xs md:text-sm text-gray-600 font-medium')
 
-                with ui.column().classes('bg-blue-50 rounded-2xl p-6 items-center justify-center gap-1'):
-                    ui.label(task_result_data['stats']['accuracy_value']).classes('text-3xl md:text-4xl font-bold text-blue-900')
-                    ui.label(task_result_data['stats']['accuracy_label']).classes('text-xs md:text-sm text-gray-600 font-medium')
+                        stat_card(self.dados['tempo'], "Tempo Total")
+                        stat_card(self.dados['pontos'], "Pontos")
+                        stat_card(self.dados['precisao'], "Precisão")
+                        stat_card(self.dados['sequencia'], "Sequência (Streak)")
 
-                with ui.column().classes('bg-blue-50 rounded-2xl p-6 items-center justify-center gap-1'):
-                    ui.label(task_result_data['stats']['streak_value']).classes('text-3xl md:text-4xl font-bold text-blue-900')
-                    ui.label(task_result_data['stats']['streak_label']).classes('text-xs md:text-sm text-gray-600 font-medium')
+                with ui.row().classes('gap-4 flex-wrap justify-center w-full'):
+                    
+                    ui.button('Ir para página inicial', on_click=lambda: ui.navigate.to('/')) \
+                        .classes('bg-blue-100 text-blue-800 hover:bg-blue-200 rounded-xl px-8 py-3 font-bold shadow-none normal-case text-base')
 
-            with ui.row().classes('gap-4 flex-wrap justify-center w-full'):
-
-                ui.button('Ir para página inicial', on_click=lambda: ui.notify('Navegando para Home...')) \
-                    .classes('bg-blue-100 text-blue-800 hover:bg-blue-200 rounded-xl px-8 py-3 font-bold shadow-none normal-case text-base transition')
-
-                ui.button('Checar resultados', on_click=lambda: ui.notify('Abrindo detalhes...')) \
-                    .classes('bg-blue-700 text-white hover:bg-blue-800 rounded-xl px-8 py-3 font-bold shadow-none normal-case text-base transition')
-
-ui.run(title='Lexora - Tarefa Concluída')
+                    if self.id_prova:
+                        ui.button('Checar gabarito', on_click=lambda: ui.navigate.to(f'/gabarito?id={self.id_prova}')) \
+                            .classes('bg-blue-700 text-white hover:bg-blue-800 rounded-xl px-8 py-3 font-bold shadow-none normal-case text-base')
