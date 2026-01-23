@@ -111,7 +111,7 @@ class TarefaConcluida:
                         stat_card(self.dados['tempo'], "Tempo Total")
                         stat_card(self.dados['pontos'], "Pontos")
                         stat_card(self.dados['precisao'], "Precisão")
-                        stat_card(self.dados['sequencia'], "Sequência (Streak)")
+                        stat_card(self.dados['sequencia'], "Acertos")
 
                 with ui.row().classes('gap-4 flex-wrap justify-center w-full'):
                     
