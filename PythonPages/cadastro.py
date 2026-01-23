@@ -3,8 +3,10 @@ import requests
 import sys
 from pathlib import Path
 
+
 # Defina a URL base aqui para evitar erros
 API_URL_BASE = 'https://lexora-api.onrender.com/'
+
 
 class Cadastro:
     PRIMARY_BLUE = '#1153BE'
@@ -14,7 +16,8 @@ class Cadastro:
     SUBTLE = '#6B7280'
     
     # URL corrigida usando a base definida acima
-    API_URL = f'{API_URL_BASE}usuarios/'
+    API_URL = f'{API_URL_BASE}usuarios/RegistrarUsuario' # Ajustei levemente para o endpoint correto de registro
+
 
     def __init__(self):
         """Configura caminhos de imagens (pasta static/images)"""
@@ -27,14 +30,18 @@ class Cadastro:
             if not images_dir.is_dir():
                 images_dir = script_dir / 'images'
 
+
             if not images_dir.is_dir():
-                # Apenas avisa em vez de fechar o programa, para não travar o desenvolvimento
+                # Apenas avisa em vez de fechar o programa
                 print(f"AVISO: Diretório de imagens não encontrado: {images_dir}")
             else:
                 # Disponibiliza /images no servidor NiceGUI
-                app.add_static_files('/images', str(images_dir))
+                try:
+                    app.add_static_files('/images', str(images_dir))
+                except ValueError: pass # Evita erro se já estiver adicionado
         except Exception as e:
             print(f"Erro ao configurar arquivos estáticos: {e}", file=sys.stderr)
+
 
     # ------------------------------------------------------------
     #  Renderização da página
@@ -42,30 +49,50 @@ class Cadastro:
     def render(self):
         self._adicionar_estilos()
 
+        # Função para ir ao login
+        def ir_para_login():
+            ui.navigate.to('/login')
+
         def criar_conta():
             nome_val = nome.value
             email_val = email.value
             senha_val = senha.value
             confirmar_val = confirmar.value
 
+
             if not nome_val or not email_val or not senha_val or not confirmar_val:
                 ui.notify('Preencha todos os campos!', color='negative', position='top')
                 return
+
 
             if senha_val != confirmar_val:
                 ui.notify('As senhas não conferem!', color='negative', position='top')
                 return
 
-            dados = {"nome": nome_val, "email": email_val, "senha": senha_val}
+
+            # Adapte conforme os campos que sua API exige. 
+            # Se a API exige data de nascimento, você precisará adicionar o campo visualmente depois.
+            dados = {
+                "nome": nome_val, 
+                "email": email_val, 
+                "senha": senha_val,
+                # Valores padrão para evitar erro 500 se a API exigir esses campos
+                "id_usuario_experiencia_idioma": 1,
+                "id_objetivos_usuario": 1,
+                "data_nascimento": "2000-01-01" 
+            }
+
 
             try:
                 resposta = requests.post(self.API_URL, json=dados)
                 if resposta.status_code in [200, 201]:
                     ui.notify('Conta criada com sucesso!', color='positive', position='top')
+                    ui.navigate.to('/login') # Redireciona após sucesso também
                 else:
                     ui.notify(f'Erro ao criar conta: {resposta.text}', color='negative', position='top')
             except Exception as e:
                 ui.notify(f'Erro de conexão: {str(e)}', color='negative', position='top')
+
 
         def campo_senha(ph, nome_img_eye, nome_img_eyef):
             with ui.element('div').classes('cad-row-box'):
@@ -76,26 +103,26 @@ class Cadastro:
                     .props('borderless dense autocomplete=off')\
                     .classes('cad-field')
 
+
                 eye_state = {'show': False}
                 eye_img = ui.image(f'/images/{nome_img_eyef}').classes('eye-clicavel')
+
 
                 def toggle_eye():
                     eye_state['show'] = not eye_state['show']
                     eye_img.set_source(f'/images/{nome_img_eye}' if eye_state['show'] else f'/images/{nome_img_eyef}')
                     type_target = "text" if eye_state['show'] else "password"
-                    ui.run_javascript(f"""
-                        var el = document.querySelectorAll('input[placeholder="{ph}"]');
-                        if (el.length) el[el.length-1].type = '{type_target}';
-                    """)
+                    # Correção JS para alternar type
+                    campo.props(f'type={type_target}')
+
 
                 eye_img.on('click', toggle_eye)
             return campo
 
+
         # ---------------- Layout principal ----------------
-        # ADICIONADO: .classes('p-4') para dar margem em celulares
         with ui.row().classes('w-full justify-center items-center min-h-screen p-4'):
             
-            # ADICIONADO: Ajuste de largura para 100% responsivo
             with ui.column().classes('items-center w-full').style('max-width:450px; margin-top:20px; z-index:10;'):
                 ui.image('/images/logo.png').style('margin-bottom:8px; max-width:120px;')
                 ui.label('CRIE SUA CONTA').style(
@@ -105,40 +132,47 @@ class Cadastro:
                     f'color:{self.SUBTLE}; font-size:13px; margin-bottom:28px; text-align:center'
                 )
 
+
                 with ui.element('div').classes('cad-card w-full'):
                     # Nome
                     ui.html('<div class="cad-label">Nome completo</div>', sanitize=False)
                     with ui.element('div').classes('cad-field-wrap'):
                         with ui.element('div').classes('cad-row-box'):
                             ui.image('/images/user.png').classes('cad-icon')
-                            # ADICIONADO: props borderless dense
                             nome = ui.input('', placeholder='Ex: Ana Maria Menezes').props('borderless dense').classes('cad-field')
+
 
                     # E-mail
                     ui.html('<div class="cad-label">E-mail</div>', sanitize=False)
                     with ui.element('div').classes('cad-field-wrap'):
                         with ui.element('div').classes('cad-row-box'):
                             ui.image('/images/mail.png').classes('cad-icon')
-                            # ADICIONADO: props borderless dense
                             email = ui.input('', placeholder='Ex: nome@email.com').props('borderless dense').classes('cad-field')
+
 
                     # Senha
                     ui.html('<div class="cad-label">Senha</div>', sanitize=False)
                     with ui.element('div').classes('cad-field-wrap'):
                         senha = campo_senha('Escolha uma senha segura', 'eye.png', 'eyef.png')
 
+
                     # Confirmar Senha
                     ui.html('<div class="cad-label">Confirmar senha</div>', sanitize=False)
                     with ui.element('div').classes('cad-field-wrap'):
                         confirmar = campo_senha('Digite novamente a senha', 'eye.png', 'eyef.png')
 
-                    ui.button('CRIAR CONTA', on_click=criar_conta, color=self.PRIMARY_BLUE).classes('cad-btn')
-                    ui.button('JÁ POSSUO CONTA', color='white').classes('cad-btn2')
 
-        # Imagem lateral (Manequim) - Ajustada para sumir em telas médias/pequenas
+                    ui.button('CRIAR CONTA', on_click=criar_conta, color=self.PRIMARY_BLUE).classes('cad-btn')
+                    
+                    # ✅ CORREÇÃO AQUI: Adicionado on_click=ir_para_login
+                    ui.button('JÁ POSSUO CONTA', on_click=ir_para_login, color='white').classes('cad-btn2')
+
+
+        # Imagem lateral (Manequim)
         ui.image('/images/ImageM.png').classes('sideimg').style(
             'position:fixed; right:60px; bottom:28px; max-width:350px; max-height:380px; z-index:1;'
         )
+
 
     # ------------------------------------------------------------
     #  Estilos globais
@@ -149,7 +183,6 @@ class Cadastro:
         body {{ background: #FCFCFC; margin: 0; }}
         
         .cad-card {{
-            /* Responsividade: ocupa 100% da largura disponível até 450px */
             width: 100%; 
             max-width: 450px; 
             margin: 0 auto; 
@@ -166,7 +199,7 @@ class Cadastro:
         .cad-row-box {{
             position: relative;
             display: flex;
-            align-items: center; /* Centraliza verticalmente */
+            align-items: center;
             background: {self.FIELD_BG};
             border-radius: 12px;
             border: 1px solid {self.FIELD_BORDER};
@@ -177,15 +210,14 @@ class Cadastro:
             font-size: 17px;
         }}
         
-        /* Ajuste CRÍTICO para o input do NiceGUI/Quasar */
         .cad-field {{
             flex: 1;
             margin-left: 8px;
             font-size: 16px;
         }}
-        /* Remove paddings internos do Quasar para alinhar perfeitamente */
         .cad-field .q-field__control {{ height: 100% !important; min-height: unset !important; }}
         .cad-field .q-field__native {{ padding: 0 !important; color: {self.LABEL_COLOR}; }}
+
 
         .cad-label {{ color: {self.LABEL_COLOR}; font-size:14px; margin-bottom:6px; font-weight:600; }}
         .cad-icon {{ width:24px; height:24px; opacity: 0.7; }}
@@ -208,23 +240,23 @@ class Cadastro:
             color:{self.SUBTLE}; border:1px solid {self.FIELD_BORDER}; background:#fff;
         }}
         
-        /* Media Query para Responsividade */
         @media (max-width: 1100px){{
-            .sideimg {{ display:none !important; }} /* Esconde imagem em telas médias */
+            .sideimg {{ display:none !important; }}
         }}
         
         @media (max-width: 500px){{
-            .cad-card {{ padding: 25px 20px; }} /* Menos padding interno no celular */
+            .cad-card {{ padding: 25px 20px; }}
             .cad-btn, .cad-btn2 {{ height: 48px; font-size: 16px; }}
         }}
         </style>
         """)
+
 
 @ui.page('/')
 def index():
     pagina = Cadastro()
     pagina.render()
 
-# Configuração para evitar loop de reinicialização e abrir navegador
+
 if __name__ in {"__main__", "__mp_main__"}:
     ui.run(title='Cadastro Lexora', port=8080, reload=False, native=False, show=True)
