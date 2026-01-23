@@ -114,7 +114,6 @@ class Questoes:
                 return res.status_code == 200 and res.text.strip().lower() == 'true'
         except: return False
 
-    # BUSCA NO HISTÓRICO SE A PROVA FECHAR (Para a última questão)
     async def buscar_resposta_historico(self, id_questao):
         try:
             async with httpx.AsyncClient(headers=self.get_headers()) as client:
@@ -132,7 +131,6 @@ class Questoes:
         return ""
 
     def proxima(self):
-        # Se for a última questão, navega para a conclusão
         if state.indice_atual >= len(state.questoes) - 1:
             id_final = state.id_conjunto_atual
             state.reset()
@@ -179,7 +177,7 @@ class Questoes:
                 ui.label(f'{state.numero_questao_atual} / {state.total_questoes}').classes('text-sm text-gray-600 font-bold self-end')
 
             with ui.card().classes('w-full rounded-[20px] shadow-sm border border-gray-100 p-6'):
-                ui.label(f"{dados['titulo']} (ID: {state.id_conjunto_atual})").classes('text-xl font-bold')
+                ui.label(dados['titulo']).classes('text-xl font-bold')
                 
                 with ui.row().classes('w-full gap-6 mt-4 wrap'):
                     with ui.column().classes('w-full md:w-1/3 items-center justify-center'):
@@ -206,13 +204,10 @@ class Questoes:
                             if acertou:
                                 btn.classes('!bg-green-100 !border-green-500 !text-green-900')
                                 btn.props('icon=check')
-                                ui.notify('Correto!', type='positive')
                             else:
                                 btn.classes('!bg-red-100 !border-red-500 !text-red-900')
                                 btn.props('icon=close')
-                                ui.notify('Incorreto.', type='negative')
                                 
-                                # Pinta a certa
                                 achou = False
                                 for b_obj, op_data in lista_botoes:
                                     if str(op_data['texto']).strip().lower() == str(texto_correto).strip().lower():
