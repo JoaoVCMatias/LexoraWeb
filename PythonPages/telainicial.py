@@ -119,7 +119,7 @@ def render_tela_inicial() -> None:
         atividades_feitas_hoje = atividades_grafico.get('atividades_feitas', 0)
         meta_diaria = atividades_grafico.get('meta', 5)
 
-    dias_ofensiva = seq_atual
+    dias_ofensiva = ofensiva.get('dias', 0) if isinstance(ofensiva, dict) else 0
     if isinstance(ofensiva, dict): dias_ofensiva = ofensiva.get('dias', seq_atual)
     elif isinstance(ofensiva, (int, float)): dias_ofensiva = int(ofensiva)
 
@@ -198,7 +198,6 @@ def render_tela_inicial() -> None:
                 # Ícone do Fogo
                 img_fogo = FIRE_DARK_PATH if dias_ofensiva > 0 else SNOW_PATH
                 ui.image(img_fogo).classes('calicone').style('width:40px;height:auto;')
-                
                 # Texto da Ofensiva
                 if dias_ofensiva > 0:
                     ui.label(f'{dias_ofensiva} {"dia" if dias_ofensiva == 1 else "dias"}').style(f'font-size:24px;font-weight:700;color:{PRIMARY};')
