@@ -16,6 +16,7 @@ try:
     except ValueError: pass
 except Exception: pass
 
+
 class QuizState:
     def __init__(self):
         self.reset()
@@ -32,11 +33,11 @@ class QuizState:
 # Estado global da página
 state = QuizState()
 
-# ✅ A CLASSE QUE O MAIN.PY ESTÁ PROCURANDO
 class Questoes:
     def __init__(self):
-        # Tenta pegar token do storage ou da URL (caso tenha vindo de login recente)
-        self.token = app.storage.user.get('token')
+        # 1. Proteção: Garante que 'storage' não seja None
+        storage = app.storage.user or {}
+        self.token = storage.get('token')
         
         if not self.token:
             print("⚠️ Token não encontrado em Questoes! Redirecionando...")
@@ -48,91 +49,112 @@ class Questoes:
             "Content-Type": "application/json"
         }
 
-    async def carregar_questoes_api(self, forcar_atualizacao=False):
+    async def carregar_questoes_api(self, forcar_atualizacao=False, apenas_atualizar=False):
         if len(state.questoes) > 0 and not forcar_atualizacao:
             state.carregando = False
             self.renderizar_conteudo.refresh()
             return
 
-        if not forcar_atualizacao:
+        if not forcar_atualizacao and not apenas_atualizar:
             state.carregando = True
             self.renderizar_conteudo.refresh()
         
         try:
             async with httpx.AsyncClient(headers=self.get_headers(), follow_redirects=True) as client:
+                # --- Tenta BUSCAR prova existente (GET) ---
                 response = await client.get(f"{API_BASE_URL}/Questao/ConjuntoQuestao", timeout=30.0)
                 
+                lista_crua = []
+                dados_api = {}
+
                 if response.status_code == 200:
                     dados_api = response.json()
-                    state.id_conjunto_atual = dados_api.get('id_conjunto_questao')
-                    lista_crua = dados_api.get('questoes', [])
-                    
-                    questoes_formatadas = []
-                    for q in lista_crua:
-                        try:
-                            raw_op = q.get('json_opcao')
-                            if raw_op:
-                                if "'" in raw_op and '"' not in raw_op:
-                                    raw_op = raw_op.replace("'", '"')
-                                lista_opcoes = json.loads(raw_op)
-                            else:
-                                lista_opcoes = []
-                        except:
-                            lista_opcoes = []
-
-                        opcoes_ui = []
-                        letras = ['A', 'B', 'C', 'D', 'E']
-                        for i, texto in enumerate(lista_opcoes):
-                            letra = letras[i] if i < len(letras) else str(i)
-                            opcoes_ui.append({
-                                "letra": letra, 
-                                "texto": texto, 
-                                "indice": i 
-                            })
-
-                        questoes_formatadas.append({
-                            "id": q.get('id_questao'),
-                            "titulo": "Atividade Prática",
-                            "pergunta_texto": q.get('descricao_questao'),
-                            "opcoes": opcoes_ui,
-                            "resposta_correta_texto": q.get('resposta') 
-                        })
-                    
-                    state.questoes = questoes_formatadas
-                    state.total_questoes = len(state.questoes)
+                    # 2. Proteção: Verifica se dados_api é válido
+                    if dados_api and isinstance(dados_api, dict):
+                        lista_crua = dados_api.get('questoes', [])
                 
-                elif response.status_code == 403:
-                    ui.notify('Sessão expirada.', type='negative')
-                    ui.navigate.to('/login')
-                elif response.status_code == 404:
-                     state.questoes = []
+                # --- Se não achou, tenta CRIAR nova prova (POST) ---
+                if not apenas_atualizar:
+                    if not lista_crua and response.status_code != 403:
+                        if state.indice_atual == 0:
+                            print("--- Gerando nova prova (POST)... ---")
+                            resp_post = await client.post(f"{API_BASE_URL}/Questao/ConjuntoQuestao", timeout=30.0)
+                            
+                            if resp_post.status_code == 200:
+                                dados_api = resp_post.json()
+                                # 3. Proteção CRÍTICA no POST: Verifica se retornou None
+                                if dados_api and isinstance(dados_api, dict):
+                                    lista_crua = dados_api.get('questoes', [])
+                                    state.id_conjunto_atual = dados_api.get('id_conjunto_questao')
+                                else:
+                                    print(f"AVISO: POST retornou dados inválidos: {dados_api}")
+
+                    # Se achou questões (seja do GET ou do POST), processa
+                    if lista_crua:
+                        if not state.id_conjunto_atual and isinstance(dados_api, dict):
+                             state.id_conjunto_atual = dados_api.get('id_conjunto_questao')
+
+                        questoes_formatadas = []
+                        for q in lista_crua:
+                            if not isinstance(q, dict): continue
+
+                            try:
+                                raw_op = q.get('json_opcao', '[]') or '[]'
+                                ops = []
+                                # Tenta decodificar JSON ou literal_eval se falhar
+                                try: ops = json.loads(raw_op)
+                                except: ops = []
+                                
+                                if not isinstance(ops, list): ops = []
+                            except:
+                                ops = []
+
+                            opcoes_ui = [
+                                {"letra": chr(65+i), "texto": str(t), "indice": i} 
+                                for i, t in enumerate(ops)
+                            ]
+
+                            questoes_formatadas.append({
+                                "id": q.get('id_questao'),
+                                "titulo": "Atividade Prática",
+                                "pergunta_texto": q.get('descricao_questao'),
+                                "opcoes": opcoes_ui,
+                                "resposta_correta_texto": str(q.get('resposta') or '').strip()
+                            })
+                        
+                        state.questoes = questoes_formatadas
+                        state.total_questoes = len(state.questoes)
                     
+                    elif response.status_code == 403:
+                        ui.notify('Sessão expirada.', type='negative')
+                        ui.navigate.to('/login')
+
         except Exception as e:
+            print(f"ERRO: {e}") # Log no terminal para debug
             ui.notify(f'Erro de conexão: {str(e)}', type='negative')
         finally:
             state.carregando = False
-            if not forcar_atualizacao:
+            if not forcar_atualizacao and not apenas_atualizar:
                 self.renderizar_conteudo.refresh()
 
     async def registrar_resposta_api(self, id_questao, indice_numerico):
         if not state.id_conjunto_atual: return False
-
-        url = (f"{API_BASE_URL}/Questao/ResponderQuestao/"
-            f"{id_questao}/{indice_numerico}/{state.id_conjunto_atual}")
-
+        url = f"{API_BASE_URL}/Questao/ResponderQuestao/{id_questao}/{indice_numerico}/{state.id_conjunto_atual}"
         try:
             async with httpx.AsyncClient(headers=self.get_headers()) as client:
-                response = await client.post(url)
-                if response.status_code == 200:
-                    return response.text.strip().lower() == 'true'
-                return False
-        except Exception:
-            return False
+                res = await client.post(url)
+                return res.status_code == 200 and res.text.strip().lower() == 'true'
+        except: return False
 
     def proxima(self):
-        state.indice_atual += 1
-        state.numero_questao_atual += 1
-        self.renderizar_conteudo.refresh()
+        if state.indice_atual >= len(state.questoes) - 1:
+            # Acabou as questões
+            state.reset()
+            ui.navigate.to('/') # Ou para uma tela de parabéns
+        else:
+            state.indice_atual += 1
+            state.numero_questao_atual += 1
+            self.renderizar_conteudo.refresh()
 
     def sair(self):
         state.reset()
@@ -147,99 +169,77 @@ class Questoes:
         if state.carregando:
             with ui.column().classes('w-full h-screen items-center justify-center'):
                 ui.spinner(size='lg')
-                ui.label('Carregando atividade...').classes('text-gray-500')
+                ui.label('Carregando...').classes('text-gray-500')
             return
 
-        if not state.questoes or state.indice_atual >= len(state.questoes):
-            with ui.column().classes('w-full h-screen items-center justify-center gap-4'):
-                if not state.questoes:
-                    ui.icon('warning', size='4rem', color='orange')
-                    ui.label('Sem questões disponíveis.').classes('text-xl')
-                else:
-                    ui.icon('emoji_events', size='4rem', color='green')
-                    ui.label('Atividade Concluída!').classes('text-2xl font-bold')
-                
-                ui.button('Voltar ao Menu', on_click=self.sair).props('color=primary')
-            return 
+        if not state.questoes:
+            with ui.column().classes('w-full h-screen items-center justify-center'):
+                ui.label('Nenhuma questão encontrada.').classes('text-xl')
+                ui.button('Voltar', on_click=self.sair)
+            return
+
+        # Proteção de índice
+        if state.indice_atual >= len(state.questoes):
+            state.reset()
+            ui.navigate.to('/')
+            return
 
         dados = state.questoes[state.indice_atual]
 
         with ui.row().classes('w-full justify-between items-center px-4 py-2 bg-white shadow-sm'):
-            with ui.row().classes('items-center gap-2'):
-                ui.icon('school', color='primary', size='sm') 
-                ui.label('Lexora').classes('text-lg font-bold text-gray-800')
-            ui.button('Sair', on_click=self.sair).props('flat dense no-caps icon-right=logout text-color=grey-7')
+            ui.label('Lexora').classes('text-lg font-bold')
+            ui.button('Sair', on_click=self.sair).props('flat dense icon-right=logout')
 
         with ui.column().classes('w-full max-w-5xl mx-auto p-4'):
-            
-            with ui.column().classes('w-full mb-4 gap-1'):
+            with ui.column().classes('w-full mb-4 gap-2'):
                 with ui.element('div').classes('w-full h-3 bg-blue-100 rounded-full overflow-hidden'):
                     pct = (state.numero_questao_atual / state.total_questoes) * 100 if state.total_questoes > 0 else 0
                     ui.element('div').classes('h-full bg-[#1e2e45]').style(f'width: {pct}%')
-                ui.label(f'{state.numero_questao_atual} / {state.total_questoes}').classes('text-xs text-gray-500 self-end')
+                ui.label(f'{state.numero_questao_atual} / {state.total_questoes}').classes('text-sm text-gray-600 font-bold self-end')
 
             with ui.card().classes('w-full rounded-[20px] shadow-sm border border-gray-100 p-6'):
-                ui.label(dados['titulo']).classes('text-xl font-bold text-gray-900')
+                ui.label(dados['titulo']).classes('text-xl font-bold')
 
-                with ui.row().classes('w-full justify-between items-start mt-4 gap-6 wrap'):
-                    with ui.column().classes('w-full md:w-1/3 items-center justify-center min-h-[200px]'):
-                        ui.image('/local_images/img_questao.png').classes('max-w-[250px] w-full object-contain')
+                with ui.row().classes('w-full gap-6 mt-4 wrap'):
+                    with ui.column().classes('w-full md:w-1/3 items-center justify-center'):
+                        ui.image('/local_images/img_questao.png').classes('max-w-[250px]')
 
-                    with ui.column().classes('w-full md:w-3/5 gap-6'):
-                        with ui.row().classes('bg-blue-50 rounded-lg px-6 py-4 items-center w-full'):
-                            ui.label(dados['pergunta_texto']).classes('text-lg font-medium text-gray-900 leading-tight')
+                    with ui.column().classes('w-full md:w-3/5 gap-4'):
+                        ui.label(dados['pergunta_texto']).classes('text-lg bg-blue-50 p-4 rounded w-full')
 
-                        lista_botoes_refs = []
+                        lista_botoes = []
 
-                        async def selecionar_alternativa(btn_clicado, opcao_obj):
-                            for btn, _, _ in lista_botoes_refs: btn.disable()
+                        async def click_op(btn, op):
+                            for b_obj, _ in lista_botoes: b_obj.disable()
                             
-                            acertou_bool = await self.registrar_resposta_api(dados['id'], opcao_obj['indice'])
+                            acertou = await self.registrar_resposta_api(dados['id'], op['indice'])
                             dados_atualizados = state.questoes[state.indice_atual]
-                            texto_correto = dados_atualizados.get('resposta_correta_texto')
+                            texto_correto = dados_atualizados.get('resposta_correta_texto', '')
 
-                            if acertou_bool:
-                                btn_clicado.classes('!bg-green-100 !border-green-500 !text-green-900')
-                                for b, _, icon in lista_botoes_refs:
-                                    if b == btn_clicado: icon.props('name=check color=green'); icon.set_visibility(True)
-                                ui.notify('Resposta Correta!', type='positive')
+                            if acertou:
+                                btn.classes('!bg-green-100 !border-green-500 !text-green-900')
+                                btn.props('icon=check')
+                                ui.notify('Correto!', type='positive')
                             else:
-                                btn_clicado.classes('!bg-red-100 !border-red-500 !text-red-900')
-                                for b, _, icon in lista_botoes_refs:
-                                    if b == btn_clicado: icon.props('name=close color=red'); icon.set_visibility(True)
-                                ui.notify('Resposta Incorreta.', type='negative')
+                                btn.classes('!bg-red-100 !border-red-500 !text-red-900')
+                                btn.props('icon=close')
+                                ui.notify(f'Incorreto. Resposta: {texto_correto}', type='negative')
 
-                                if texto_correto:
-                                    for btn, op, icon in lista_botoes_refs:
-                                        if str(op['texto']).strip().lower() == str(texto_correto).strip().lower():
-                                            btn.classes('!bg-green-100 !border-green-500 !text-green-900')
-                                            icon.props('name=check color=green'); icon.set_visibility(True)
+                            btn_prox.set_visibility(True)
 
-                            btn_proxima.set_visibility(True)
-
-                        with ui.column().classes('w-full gap-3'):
-                            for opcao in dados['opcoes']:
-                                btn = ui.button().classes(
-                                    'w-full bg-white border border-gray-300 text-gray-700 '
-                                    'rounded-lg px-4 py-3 text-left normal-case hover:bg-gray-50 shadow-sm transition-all'
-                                ).props('flat')
-                                
-                                with btn:
-                                    with ui.row().classes('w-full items-center gap-4 no-wrap'):
-                                        ui.label(opcao['letra']).classes('font-bold text-blue-800 bg-blue-50 px-2 py-1 rounded text-sm')
-                                        ui.label(opcao['texto']).classes('text-base font-medium grow')
-                                        icone = ui.icon('check', size='sm').classes('opacity-0'); icone.set_visibility(False)
-
-                                btn.on('click', lambda b=btn, o=opcao: selecionar_alternativa(b, o))
-                                lista_botoes_refs.append((btn, opcao, icone))
-
-                with ui.row().classes('w-full justify-between items-center mt-8'):
-                    ui.button('Pular', on_click=self.proxima).classes('text-gray-500').props('flat no-caps')
-                    btn_proxima = ui.button('Próxima questão', on_click=self.proxima).classes('bg-[#1e2e45] text-white font-bold px-6 rounded-lg normal-case').props('unelevated icon-right=arrow_forward')
-                    btn_proxima.set_visibility(False)
+                        for op in dados['opcoes']:
+                            b = ui.button().classes('w-full bg-white border border-gray-300 text-gray-700 rounded-lg px-4 py-3 text-left normal-case shadow-sm').props('flat')
+                            with b:
+                                with ui.row().classes('items-center gap-4'):
+                                    ui.label(op['letra']).classes('font-bold text-blue-800 bg-blue-50 px-2 rounded')
+                                    ui.label(op['texto'])
+                            
+                            b.on('click', lambda _, btn=b, o=op: click_op(btn, o))
+                            lista_botoes.append((b, op))
+                        
+                        btn_prox = ui.button('Próxima', on_click=self.proxima).classes('self-end mt-4')
+                        btn_prox.set_visibility(False)
 
     def render(self):
         ui.query('body').style('background-color: #f8fafc; margin: 0; padding: 0;')
-        if state.indice_atual == 0 and not state.ja_iniciou_busca:
-            state.reset()
         self.renderizar_conteudo()

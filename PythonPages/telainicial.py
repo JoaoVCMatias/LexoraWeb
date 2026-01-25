@@ -3,6 +3,7 @@ import calendar
 import requests
 from datetime import datetime, timedelta
 from pathlib import Path
+import json
 
 # ====== CONFIGURAÇÕES DE API ======
 API_URL_BASE = 'https://lexora-api.onrender.com/'
@@ -16,9 +17,12 @@ def get_headers() -> dict:
 
 # ====== ARQUIVOS ESTÁTICOS ======
 try:
-    local_images_dir = Path(r'C:\Users\Luca\Desktop\Lexora\LexoraWeb\images')
-    if local_images_dir.exists():
-        app.add_static_files('/images', str(local_images_dir))
+    script_dir = Path(__file__).parent.resolve()
+    images_dir = script_dir.parent / 'images'
+    if not images_dir.is_dir():
+        images_dir = script_dir / 'images'
+    if images_dir.is_dir():
+        app.add_static_files('/images', str(images_dir))
 except Exception: pass
 
 # CORES E CAMINHOS
@@ -46,32 +50,50 @@ ui.add_head_html("""
 
 # ====== BACKEND ======
 def get_json(path: str, default):
+    url = f'{API_URL_BASE}{path}'
     try:
-        resp = requests.get(f'{API_URL_BASE}{path}', headers=get_headers(), timeout=10)
-        return resp.json() if resp.status_code == 200 else default
-    except: return default
+        resp = requests.get(url, headers=get_headers(), timeout=10)
+        if resp.status_code == 200:
+            return resp.json()
+        return default
+    except Exception as e:
+        print(f"❌ Erro em {path}: {e}")
+        return default
 
 def buscar_dados_perfil(): return get_json('usuarios/UsuarioInformacao', {})
 def buscar_estatisticas_gerais(): return get_json('relatorio/EstatisticaUsuario', {})
 def buscar_ofensiva(): return get_json('relatorio/OfensivaUsuario', {})
 def buscar_atividade_grafico(): return get_json('relatorio/AtividadeUsuario', [])
+# Endpoint para o histórico do gráfico
+def buscar_dados_grafico(): return get_json('relatorio/DataUsuario', [])
 
 # ====== COMPONENTES ======
-def grafico_barras(valores, max_valor=5):
-    with ui.row().style('margin-top:14px;margin-bottom:12px;justify-content:center;gap:10px;max-width:480px;width:100%;margin-left:auto;margin-right:auto;'):
-        if not valores: valores = [0] * 15
-        dados = valores[-15:] if len(valores) >= 15 else list(valores)
-        while len(dados) < 15: dados.insert(0, 0)
+def grafico_barras(valores, max_valor=100):
+    if not any(valores): max_valor = 100
+    max_dado = max(valores) if valores else 0
+    if max_dado > max_valor: max_valor = max_dado
+    if max_valor <= 0: max_valor = 100
 
-        for v in dados:
+    with ui.row().style('margin-top:14px;margin-bottom:12px;justify-content:center;gap:10px;max-width:480px;width:100%;margin-left:auto;margin-right:auto;'):
+        dados_processados = list(valores) if valores else []
+        while len(dados_processados) < 15:
+            dados_processados.insert(0, 0)
+        dados_finais = dados_processados[-15:]
+
+        for v in dados_finais:
             val = float(v) if v else 0
-            pct = min(val / max_valor, 1.0) if max_valor > 0 else 0
+            pct = min(val / max_valor, 1.0)
+            
             label = f"{int(val/1000)}k" if val >= 1000 else f"{int(val)}"
+            
             with ui.column().style('align-items:center;gap:4px;'):
                 with ui.element('div').style('width:16px;height:96px;background:#E5E7EB;position:relative;border-radius:10px 10px 0 0;display:flex;align-items:flex-end;overflow:visible'):
-                    ui.element('div').style(f'width:16px;height:{int(96 * pct)}px;background:{PRIMARY};position:absolute;left:0;bottom:0;border-radius:10px 10px 0 0;')
-                ui.label(label).style('font-size:11px;color:#111827;text-align:center;min-width:16px;font-weight:600;')
-                ui.label(str(int(val))).style('font-size:10px;color:#9CA3AF;text-align:center;min-width:16px;')
+                    altura_azul = int(96 * pct)
+                    if altura_azul > 0:
+                        ui.element('div').style(f'width:16px;height:{altura_azul}px;background:{PRIMARY};position:absolute;left:0;bottom:0;border-radius:10px 10px 0 0;')
+                
+                visibilidade = 'opacity:1' if val > 0 else 'opacity:0'
+                ui.label(label).style(f'font-size:11px;color:#111827;text-align:center;min-width:16px;font-weight:600;{visibilidade}')
 
 # ====== RENDER ======
 def render_tela_inicial() -> None:
@@ -88,12 +110,13 @@ def render_tela_inicial() -> None:
         ui.navigate.to('/questoes')
 
     # Carregamento de dados
-    perfil = buscar_dados_perfil()
-    estatisticas = buscar_estatisticas_gerais()
-    ofensiva = buscar_ofensiva()
-    atividades_grafico = buscar_atividade_grafico()
+    perfil = buscar_dados_perfil() or {}
+    estatisticas = buscar_estatisticas_gerais() or {}
+    ofensiva = buscar_ofensiva() or {}
+    atividades_meta = buscar_atividade_grafico() or [] # Usado APENAS para a META (AtividadeUsuario)
+    dados_grafico_raw = buscar_dados_grafico() or []   # Usado APENAS para o GRÁFICO (DataUsuario)
 
-    # Processamento
+    # Processamento Perfil
     nome_completo = perfil.get('nome', 'Usuário')
     email_user = perfil.get('email', '---')
     data_nasc_raw = perfil.get('data_nascimento', '---')
@@ -105,23 +128,49 @@ def render_tela_inicial() -> None:
         data_nasc = datetime.strptime(data_nasc_raw.split('T')[0], '%Y-%m-%d').strftime('%d / %m / %Y') if data_nasc_raw != '---' else '---'
     except: data_nasc = data_nasc_raw
 
+    # Processamento Estatísticas
     dias_ativos = estatisticas.get('dias_ativo', 0)
     atividades_feitas_total = estatisticas.get('atividades_feitas', 0)
     pontos_total = estatisticas.get('pontos_totais', 0)
     seq_atual = estatisticas.get('ultima_sequencia', 0)
     seq_recorde = estatisticas.get('maior_sequencia', 0)
 
+    # ====== LÓGICA DA META DIÁRIA (Original, baseada em lições) ======
     atividades_feitas_hoje = 0
     meta_diaria = 5
-    valores_grafico = [0] * 15
+    
+    # Extrai meta e atividades de 'AtividadeUsuario' (que você disse que era o original da meta)
+    if isinstance(atividades_meta, dict):
+         atividades_feitas_hoje = atividades_meta.get('atividades_feitas', 0)
+         meta_diaria = atividades_meta.get('meta', 5)
+    elif isinstance(atividades_meta, list) and atividades_meta:
+         # Tenta pegar do último item se for lista
+         if isinstance(atividades_meta[-1], dict):
+             atividades_feitas_hoje = atividades_meta[-1].get('atividades_feitas', 0)
+             meta_diaria = atividades_meta[-1].get('meta', 5)
 
-    if isinstance(atividades_grafico, dict):
-        atividades_feitas_hoje = atividades_grafico.get('atividades_feitas', 0)
-        meta_diaria = atividades_grafico.get('meta', 5)
 
+    # ====== LÓGICA DO GRÁFICO (Baseada em DataUsuario - Pontos) ======
+    valores_grafico = []
+    if isinstance(dados_grafico_raw, list):
+        try:
+            dados_grafico_raw.sort(key=lambda x: x.get('data', ''))
+        except: pass
+        for item in dados_grafico_raw:
+            if isinstance(item, dict):
+                p = item.get('pontos', 0)
+                valores_grafico.append(float(p))
+            elif isinstance(item, (int, float)):
+                valores_grafico.append(float(item))
+
+    if not valores_grafico:
+        valores_grafico = [0] * 15
+
+    # Processamento Ofensiva
     dias_ofensiva = seq_atual
     if isinstance(ofensiva, dict): dias_ofensiva = ofensiva.get('dias', seq_atual)
     elif isinstance(ofensiva, (int, float)): dias_ofensiva = int(ofensiva)
+
 
     # --- UI ---
     with ui.column().classes('w-full').style('align-items:center'):
@@ -134,7 +183,7 @@ def render_tela_inicial() -> None:
 
         with ui.row().style('margin-top:8px;justify-content:center;width:100%;gap:18px;flex-wrap:wrap'):
             
-            # Card Perfil (Esquerda)
+            # Card Perfil
             with ui.column().classes('menu-card').style('align-items:flex-start;gap:8px'):
                 ui.html('<b>Meu perfil</b>', sanitize=False)
                 ui.html(f'<div class="perfil-row"><span class="perfil-icon">👤</span><span class="perfil-value">Nome<br><span style="font-weight:400;font-size:13px">{nome_completo}</span></span></div>', sanitize=False)
@@ -142,18 +191,18 @@ def render_tela_inicial() -> None:
                 ui.html(f'<div class="perfil-row"><span class="perfil-icon">📧</span><span class="perfil-value">E-mail<br><span style="font-weight:400;font-size:13px">{email_user}</span></span></div>', sanitize=False)
                 ui.html(f'<div class="perfil-row"><span class="perfil-icon">🌎</span><span class="perfil-value">Idioma<br><span style="font-weight:400;font-size:13px">{idioma}</span></span></div>', sanitize=False)
 
-            # Card Central (Aprendizado e Stats)
+            # Card Central
             with ui.column().classes('center-card').style('gap:6px'):
                 ui.label('Meu aprendizado').style('font-size: 20px; font-weight:700; margin-bottom: 4px; color:#111827')
                 
                 with ui.row().style('gap:10px;margin-bottom:8px;flex-wrap:wrap'):
                     ui.button(f'IDIOMA {idioma.upper()}').props('flat').style('background:#D2E4FD;font-size:14px;color:#111827;border-radius:12px;font-weight:600;height:36px;padding:0 18px')
                     ui.button(f'NÍVEL {experiencia.upper()}').props('flat').style('background:#FCF3D6;font-size:14px;color:#854D0E;border-radius:12px;font-weight:600;height:36px;padding:0 18px')
-                    # ✅ BOTÃO OBJETIVO (Adicionado aqui)
                     ui.button(f'OBJETIVO {objetivo.upper()} ✏️').props('flat').style('background:#C9F0DB;font-size:14px;color:#166534;border-radius:12px;font-weight:600;height:36px;padding:0 18px')
                     
                     ui.button('INICIAR ATIVIDADE', icon='play_arrow', on_click=ir_para_questoes).props('flat').style('background:#E6F4FF;font-size:14px;color:#111827;border-radius:12px;font-weight:600;height:36px;padding:0 18px')
 
+                # BARRA DE META: Voltou ao original (Lições, não XP)
                 ui.html('<div style="color:#6B7280;font-size:13px;margin-bottom:0px;">Meta diária</div>', sanitize=False)
                 with ui.element('div').style('margin:6px 0 4px 0;width:100%'):
                     pct_meta = min((atividades_feitas_hoje / meta_diaria) * 100, 100) if meta_diaria > 0 else 0
@@ -161,7 +210,7 @@ def render_tela_inicial() -> None:
                         ui.element('div').style(f'height:100%;width:{pct_meta}%;background:{PRIMARY};border-radius:999px')
                     ui.label(f'{int(atividades_feitas_hoje)}/{int(meta_diaria)} lições').style('font-size:12px;font-weight:500;color:#4B5563;margin-top:4px')
 
-                # Estatísticas (4 blocos)
+                # Estatísticas
                 ui.label('ESTATÍSTICAS').classes('estat-title').style('margin-top:10px;text-align:center;align-self:center;')
                 with ui.column().style('width:100%;align-items:center'):
                     with ui.row().classes('estat-cards').style('gap:10px;margin-top:6px;justify-content:center;max-width:460px'):
@@ -184,22 +233,16 @@ def render_tela_inicial() -> None:
                             ui.label('Sequência recorde').classes('estat-sub')
 
                 ui.label('Pontos - Últimos 15 dias').style('margin-top:12px;font-size:14px;font-weight:600;text-align:center;align-self:center')
-                if valores_grafico and any(valores_grafico):
-                    grafico_barras(valores_grafico, max_valor=meta_diaria)
-                else:
-                    ui.label('Nenhuma atividade recente').style('color:#9CA3AF;text-align:center;padding:20px')
+                
+                # Renderiza o gráfico (usando dados de DataUsuario)
+                grafico_barras(valores_grafico, max_valor=100) # Max 100 ou auto-escalável
 
-            # Card Direito (Ofensiva Simplificada)
+            # Card Direito (Ofensiva)
             with ui.column().classes('right-card').style('align-items:center;gap:12px;justify-content:center;min-height:150px'):
-                
-                # Título
                 ui.label('Ofensiva').style('font-size:14px;font-weight:600;color:#111827;')
-                
-                # Ícone do Fogo
                 img_fogo = FIRE_DARK_PATH if dias_ofensiva > 0 else SNOW_PATH
                 ui.image(img_fogo).classes('calicone').style('width:40px;height:auto;')
                 
-                # Texto da Ofensiva
                 if dias_ofensiva > 0:
                     ui.label(f'{dias_ofensiva} {"dia" if dias_ofensiva == 1 else "dias"}').style(f'font-size:24px;font-weight:700;color:{PRIMARY};')
                     if dias_ofensiva == 1:

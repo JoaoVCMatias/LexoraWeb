@@ -1,59 +1,58 @@
-from fastapi import FastAPI
-from nicegui import ui, app  # Importado como 'app'
+from nicegui import ui, app
 
 from PythonPages.homepage import HomePage
 from PythonPages.cadastro import Cadastro
 from PythonPages.login import Login
 from PythonPages.telainicial import TelaInicial
 from PythonPages.questoes import Questoes
+from PythonPages.pos_cadastro import PosCadastro
 
-app_fastapi = FastAPI()
 
-# ✅ ROTA PRINCIPAL QUE LÊ O TOKEN DA URL
 @ui.page('/')
 def main_page(auth_token: str = None):
-    # 1. Prioridade: Token vindo da URL (acabou de logar)
-    # 2. Fallback: Token que já estava no storage
-    token = auth_token or app.storage.user.get('token')
-    
-    # Se veio pela URL, salva no storage para o futuro
-    if auth_token:
-        app.storage.user['token'] = auth_token
-        # Opcional: tentar salvar cookie em background (sem travar)
-        # Usamos try/except no JS para não quebrar se algo der errado
-        ui.run_javascript(f'document.cookie="lexora_token={auth_token}; path=/; max-age=604800;"')
+    storage = app.storage.user or {}
+    token = auth_token or storage.get('token')
 
-    print(f"\n🔍 [HOME] Token presente? {'SIM' if token else 'NÃO'}")
+    if auth_token and app.storage.user is not None:
+        app.storage.user['token'] = auth_token
+        ui.run_javascript(f'document.cookie="lexora_token={auth_token}; path=/; max-age=604800;"')
 
     if token:
         TelaInicial().render()
     else:
         HomePage().render()
-        
+
+
 @ui.page('/questoes')
 def questoes_page():
-    # CORREÇÃO: Usar 'app' ao invés de 'nicegui_app'
-    if not app.storage.user.get('token'):
+    storage = app.storage.user or {}
+    if not storage.get('token'):
         ui.navigate.to('/')
         return
-        
     Questoes().render()
+
 
 @ui.page('/login')
 def login_page():
     Login().render()
 
+
 @ui.page('/cadastro')
 def cadastro_page():
     Cadastro().render()
 
+
+@ui.page('/pos-cadastro')
+def pos_cadastro_page():
+    PosCadastro().render()
+
+
 @ui.page('/logout')
 def logout():
-    app.storage.user.clear()
+    if app.storage.user is not None:
+        app.storage.user.clear()
     ui.navigate.to('/')
 
-ui.run_with(app_fastapi, storage_secret='segredo123')
 
 if __name__ in {"__main__", "__mp_main__"}:
-    # Adicionado host='0.0.0.0' e reload=True para facilitar dev
-    ui.run(port=10000, host='0.0.0.0', storage_secret='segredo123', reload=True)
+    ui.run(host='0.0.0.0', port=10000, storage_secret='segredo123', reload=True)
