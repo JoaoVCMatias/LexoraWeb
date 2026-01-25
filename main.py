@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from nicegui import ui, app
 
 from PythonPages.homepage import HomePage
@@ -6,15 +6,19 @@ from PythonPages.cadastro import Cadastro
 from PythonPages.login import Login
 from PythonPages.telainicial import TelaInicial
 from PythonPages.questoes import Questoes
-from PythonPages.tarefa_concluida import TarefaConcluida
-from PythonPages.gabarito import Gabarito
+from PythonPages.pos_cadastro import PosCadastro
+from PythonPages.tarefa_concluida import task_completed_page
+from PythonPages.gabarito import gabarito_page 
 
 app_fastapi = FastAPI()
 
 @ui.page('/')
-def main_page(auth_token: str = None):
-    token = auth_token or app.storage.user.get('token')
-    if auth_token:
+def main_page(request: Request):
+    auth_token = request.query_params.get('auth_token')
+    storage = app.storage.user or {}
+    token = auth_token or storage.get('token')
+
+    if auth_token and app.storage.user is not None:
         app.storage.user['token'] = auth_token
         ui.run_javascript(f'document.cookie="lexora_token={auth_token}; path=/; max-age=604800;"')
 
@@ -25,25 +29,28 @@ def main_page(auth_token: str = None):
 
 @ui.page('/questoes')
 def questoes_page():
-    if not app.storage.user.get('token'):
+    storage = app.storage.user or {}
+    if not storage.get('token'):
         ui.navigate.to('/')
         return
     Questoes().render()
 
-@ui.page('/tarefa_concluida')
-def tarefa_concluida_page(id: str = None):
-    if not app.storage.user.get('token'):
+@ui.page('/tarefa-concluida')
+def tarefa_concluida_route():
+    storage = app.storage.user or {}
+    if not storage.get('token'):
         ui.navigate.to('/')
         return
+    task_completed_page()
 
-    TarefaConcluida().render(id)
-
+# 2. Rota Nova para o Gabarito
 @ui.page('/gabarito')
-def gabarito_page(id: str = None):
-    if not app.storage.user.get('token'):
+def gabarito_route():
+    storage = app.storage.user or {}
+    if not storage.get('token'):
         ui.navigate.to('/')
         return
-    Gabarito().render(id)
+    gabarito_page()
 
 @ui.page('/login')
 def login_page():
@@ -53,12 +60,17 @@ def login_page():
 def cadastro_page():
     Cadastro().render()
 
+@ui.page('/pos-cadastro')
+def pos_cadastro_page():
+    PosCadastro().render()
+
 @ui.page('/logout')
 def logout():
-    app.storage.user.clear()
+    if app.storage.user is not None:
+        app.storage.user.clear()
     ui.navigate.to('/')
 
 ui.run_with(app_fastapi, storage_secret='segredo123')
 
 if __name__ in {"__main__", "__mp_main__"}:
-    ui.run(port=10000, host='0.0.0.0', storage_secret='segredo123', reload=True)
+    ui.run('main:app_fastapi', host='0.0.0.0', port=10000, reload=True)
