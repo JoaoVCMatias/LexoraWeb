@@ -16,7 +16,7 @@ class Cadastro:
     SUBTLE = '#6B7280'
     
     # URL corrigida usando a base definida acima
-    API_URL = f'{API_URL_BASE}usuarios/RegistrarUsuario' # Ajustei levemente para o endpoint correto de registro
+    API_URL = f'{API_URL_BASE}usuarios' # Ajustei levemente para o endpoint correto de registro
 
 
     def __init__(self):
