@@ -16,17 +16,16 @@ try:
     except ValueError: pass
 except Exception: pass
 
-
 class QuizState:
     def __init__(self):
         self.reset()
-    
+        
     def reset(self):
         self.indice_atual = 0
         self.numero_questao_atual = 1
-        self.questoes = [] 
-        self.carregando = True 
-        self.id_conjunto_atual = None 
+        self.questoes = []
+        self.carregando = True
+        self.id_conjunto_atual = None
         self.total_questoes = 0
         self.ja_iniciou_busca = False
 
@@ -42,7 +41,7 @@ class Questoes:
         if not self.token:
             print("⚠️ Token não encontrado em Questoes! Redirecionando...")
             ui.navigate.to('/')
-    
+
     def get_headers(self):
         return {
             "Authorization": f"Bearer {self.token}",
@@ -58,12 +57,11 @@ class Questoes:
         if not forcar_atualizacao and not apenas_atualizar:
             state.carregando = True
             self.renderizar_conteudo.refresh()
-        
+
         try:
             async with httpx.AsyncClient(headers=self.get_headers(), follow_redirects=True) as client:
                 # --- Tenta BUSCAR prova existente (GET) ---
                 response = await client.get(f"{API_BASE_URL}/Questao/ConjuntoQuestao", timeout=30.0)
-                
                 lista_crua = []
                 dados_api = {}
 
@@ -88,46 +86,45 @@ class Questoes:
                                     state.id_conjunto_atual = dados_api.get('id_conjunto_questao')
                                 else:
                                     print(f"AVISO: POST retornou dados inválidos: {dados_api}")
+                
+                # Se achou questões (seja do GET ou do POST), processa
+                if lista_crua:
+                    if not state.id_conjunto_atual and isinstance(dados_api, dict):
+                        state.id_conjunto_atual = dados_api.get('id_conjunto_questao')
 
-                    # Se achou questões (seja do GET ou do POST), processa
-                    if lista_crua:
-                        if not state.id_conjunto_atual and isinstance(dados_api, dict):
-                             state.id_conjunto_atual = dados_api.get('id_conjunto_questao')
-
-                        questoes_formatadas = []
-                        for q in lista_crua:
-                            if not isinstance(q, dict): continue
-
-                            try:
-                                raw_op = q.get('json_opcao', '[]') or '[]'
-                                ops = []
-                                # Tenta decodificar JSON ou literal_eval se falhar
-                                try: ops = json.loads(raw_op)
-                                except: ops = []
-                                
-                                if not isinstance(ops, list): ops = []
-                            except:
-                                ops = []
-
-                            opcoes_ui = [
-                                {"letra": chr(65+i), "texto": str(t), "indice": i} 
-                                for i, t in enumerate(ops)
-                            ]
-
-                            questoes_formatadas.append({
-                                "id": q.get('id_questao'),
-                                "titulo": "Atividade Prática",
-                                "pergunta_texto": q.get('descricao_questao'),
-                                "opcoes": opcoes_ui,
-                                "resposta_correta_texto": str(q.get('resposta') or '').strip()
-                            })
+                    questoes_formatadas = []
+                    for q in lista_crua:
+                        if not isinstance(q, dict): continue
                         
-                        state.questoes = questoes_formatadas
-                        state.total_questoes = len(state.questoes)
+                        try:
+                            raw_op = q.get('json_opcao', '[]') or '[]'
+                            ops = []
+                            # Tenta decodificar JSON ou literal_eval se falhar
+                            try: ops = json.loads(raw_op)
+                            except: ops = []
+                            if not isinstance(ops, list): ops = []
+                        except:
+                            ops = []
+
+                        opcoes_ui = [
+                            {"letra": chr(65+i), "texto": str(t), "indice": i} 
+                            for i, t in enumerate(ops)
+                        ]
+                        
+                        questoes_formatadas.append({
+                            "id": q.get('id_questao'),
+                            "titulo": "Atividade Prática",
+                            "pergunta_texto": q.get('descricao_questao'),
+                            "opcoes": opcoes_ui,
+                            "resposta_correta_texto": str(q.get('resposta') or '').strip()
+                        })
                     
-                    elif response.status_code == 403:
-                        ui.notify('Sessão expirada.', type='negative')
-                        ui.navigate.to('/login')
+                    state.questoes = questoes_formatadas
+                    state.total_questoes = len(state.questoes)
+                
+                elif response.status_code == 403:
+                    ui.notify('Sessão expirada.', type='negative')
+                    ui.navigate.to('/login')
 
         except Exception as e:
             print(f"ERRO: {e}") # Log no terminal para debug
@@ -139,6 +136,7 @@ class Questoes:
 
     async def registrar_resposta_api(self, id_questao, indice_numerico):
         if not state.id_conjunto_atual: return False
+        
         url = f"{API_BASE_URL}/Questao/ResponderQuestao/{id_questao}/{indice_numerico}/{state.id_conjunto_atual}"
         try:
             async with httpx.AsyncClient(headers=self.get_headers()) as client:
@@ -150,7 +148,8 @@ class Questoes:
         if state.indice_atual >= len(state.questoes) - 1:
             # Acabou as questões
             state.reset()
-            ui.navigate.to('/') # Ou para uma tela de parabéns
+            # --- CORREÇÃO AQUI: Redireciona para tarefa concluída ---
+            ui.navigate.to('/tarefa-concluida') 
         else:
             state.indice_atual += 1
             state.numero_questao_atual += 1
@@ -158,7 +157,7 @@ class Questoes:
 
     def sair(self):
         state.reset()
-        ui.navigate.to('/')
+        ui.navigate.to('/tela-inicial')
 
     @ui.refreshable
     def renderizar_conteudo(self):
@@ -181,7 +180,7 @@ class Questoes:
         # Proteção de índice
         if state.indice_atual >= len(state.questoes):
             state.reset()
-            ui.navigate.to('/')
+            ui.navigate.to('/tarefa-concluida')
             return
 
         dados = state.questoes[state.indice_atual]
@@ -199,16 +198,16 @@ class Questoes:
 
             with ui.card().classes('w-full rounded-[20px] shadow-sm border border-gray-100 p-6'):
                 ui.label(dados['titulo']).classes('text-xl font-bold')
-
+                
                 with ui.row().classes('w-full gap-6 mt-4 wrap'):
                     with ui.column().classes('w-full md:w-1/3 items-center justify-center'):
                         ui.image('/local_images/img_questao.png').classes('max-w-[250px]')
-
+                    
                     with ui.column().classes('w-full md:w-3/5 gap-4'):
                         ui.label(dados['pergunta_texto']).classes('text-lg bg-blue-50 p-4 rounded w-full')
 
                         lista_botoes = []
-
+                        
                         async def click_op(btn, op):
                             for b_obj, _ in lista_botoes: b_obj.disable()
                             
@@ -224,7 +223,7 @@ class Questoes:
                                 btn.classes('!bg-red-100 !border-red-500 !text-red-900')
                                 btn.props('icon=close')
                                 ui.notify(f'Incorreto. Resposta: {texto_correto}', type='negative')
-
+                            
                             btn_prox.set_visibility(True)
 
                         for op in dados['opcoes']:
@@ -236,7 +235,7 @@ class Questoes:
                             
                             b.on('click', lambda _, btn=b, o=op: click_op(btn, o))
                             lista_botoes.append((b, op))
-                        
+
                         btn_prox = ui.button('Próxima', on_click=self.proxima).classes('self-end mt-4')
                         btn_prox.set_visibility(False)
 
