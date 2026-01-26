@@ -41,6 +41,16 @@ def post_json(path: str, data: dict):
     except Exception as e:
         print(f"❌ [ERRO] {e}")
         return False
+    
+def put_json(path: str, data: dict):
+    print(f"🚀 [PUT] Enviando Payload...")
+    try:
+        resp = requests.put(f'{API_URL_BASE}{path}', json=data, headers=get_headers(), timeout=15)
+        print(f"📥 [RESP] {resp.status_code} | {resp.text}")
+        return resp.status_code == 200
+    except Exception as e:
+        print(f"❌ [ERRO] {e}")
+        return False
 
 # ====== ARQUIVOS ESTÁTICOS ======
 basedir = Path(__file__).parent.resolve()
@@ -193,30 +203,17 @@ def render_tela_inicial() -> None:
                 id_idioma_safe = id_idioma_atual if id_idioma_atual >= 1 else 2
 
                 # --- SUPER PAYLOAD ---
-                # Enviamos os IDs em vários formatos para garantir que a API reconheça um deles
+                # Enviamos os IDs em vários formatos para garantir que a API reconheça um deles sds                              
                 payload = {
-                    "nome": nome_atual,
-                    "data_nascimento": data_iso,
                     "id_idioma": id_idioma_safe,
-
                     "id_experiencia_idioma": val_exp,
                     "id_objetivo": val_obj,
                     "id_disponibilidade": val_disp,
-
-
-                    "usuario_experiencia_idioma": {
-                        "id_experiencia_idioma": val_exp,
-                        "id_idioma": id_idioma_safe
-                    },
-                    "objetivos_usuario": {"id_objetivo": val_obj},
-                    "disponibilidade": {"id_disponibilidade": val_disp},
-
-                    "experiencia_idioma_id": val_exp,
-                    "objetivo_id": val_obj,
-                    "disponibilidade_id": val_disp
+                    "data_nascimento": data_iso
                 }
-
-                if post_json('usuarios/UsuarioInformacao', payload):
+                print(f"🚀 [PAYLOAD] {payload}")
+                print(app.storage.user.get('token'))
+                if put_json('usuarios/UsuarioInformacao', payload):
                     ui.notify('Perfil atualizado!', color='positive')
                     dialog_perfil.close()
                     # Aguarda 1s para o banco persistir antes de recarregar
