@@ -6,6 +6,7 @@ from pathlib import Path
 
 API_BASE_URL = "https://lexora-api.onrender.com"
 
+# Configuração de Imagens
 base_dir = Path(__file__).parent
 images_path = (base_dir / '../images').resolve()
 if images_path.exists():
@@ -24,10 +25,14 @@ class Gabarito:
     def get_headers(self):
         return {"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"}
 
+    # Função auxiliar para quebrar a frase
     def separar_frase(self, texto, chave):
         if not texto: return "", str(chave) if chave else "...", ""
         partes = re.split(r'_{2,}', texto)
-        return partes[0] if len(partes)>0 else "", str(chave) if chave else "...", partes[1] if len(partes)>1 else ""
+        pre = partes[0] if len(partes) > 0 else ""
+        post = partes[1] if len(partes) > 1 else ""
+        word = str(chave) if chave else "..."
+        return pre, word, post
 
     def processar_prova(self, dados_prova, origem):
         if not dados_prova: return None
@@ -43,13 +48,16 @@ class Gabarito:
         
         if not qs: return None
 
-        total, acertos, formatadas = len(qs), 0, []
+        total = len(qs)
+        acertos = 0
+        formatadas = []
 
         for q in qs:
             desc = q.get('descricao_questao', '')
             corr = str(q.get('resposta', ''))
             user = str(q.get('resposta_usuario', ''))
             win = q.get('acerto') is True
+            
             if win: acertos += 1
             
             grupo = []
@@ -142,9 +150,9 @@ class Gabarito:
                         
                         pts = self.stats.get('pontos', 0)
                         pct = self.stats.get('porcentagem', 0)
-                        
                         ui.label(f"Acertos: {pts} ({pct}%)").classes('text-base md:text-lg text-blue-600 font-bold')
-                    ui.button(icon='close', on_click=lambda: ui.navigate.to('/')).props('flat round dense')
+                    
+                    ui.button(icon='close', on_click=lambda: ui.navigate.to('/')).props('flat round dense text-color=grey-8')
 
                 if self.loading:
                     with ui.column().classes('w-full items-center py-10'):
@@ -152,22 +160,24 @@ class Gabarito:
                 elif not self.dados_formatados:
                     with ui.column().classes('w-full items-center py-10'):
                         ui.icon('assignment_late', size='4rem', color='grey')
-                        ui.label('Nenhum dado encontrado.').classes('text-gray-500')
+                        ui.label('Nenhum dado encontrado para este gabarito.').classes('text-gray-500')
                 
                 for i, group in enumerate(self.dados_formatados):
                     with ui.column().classes('w-full gap-3'):
                         for att in group:
-                            is_corr = att['status'] == 'correct'
-                            color = 'text-green-700' if is_corr else 'text-red-900'
-                            icon = 'check' if is_corr else 'close'
-                            icon_c = 'text-green-600' if is_corr else 'text-red-900'
+                            is_correct = (att['status'] == 'correct')
+                            
+                            color_cls = 'text-green-700' if is_correct else 'text-red-900'
+                            icon = 'check' if is_correct else 'close'
+                            icon_cls = 'text-green-600' if is_correct else 'text-red-900'
+                            bg_icon = '' if is_correct else 'bg-red-50 rounded'
                             
                             with ui.row().classes('w-full items-center gap-4'):
-                                with ui.element('div').classes(f'w-6 h-6 flex items-center justify-center {"" if is_corr else "bg-red-50 rounded"}'):
-                                    ui.icon(icon, size='xs').classes(f'{icon_c} font-bold')
+                                with ui.element('div').classes(f'w-6 h-6 flex items-center justify-center {bg_icon}'):
+                                    ui.icon(icon, size='xs').classes(f'{icon_cls} font-bold')
                                 
                                 ui.html(
-                                    f"{att['pre']} <span class='font-bold {color}'>{att['word']}</span> {att['post']}",
+                                    f"{att['pre']} <span class='font-bold {color_cls}'>{att['word']}</span> {att['post']}",
                                     sanitize=False
                                 ).classes('text-lg leading-tight')
                     

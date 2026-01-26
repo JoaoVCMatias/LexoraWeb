@@ -5,11 +5,12 @@ import httpx
 API_BASE_URL = "https://lexora-api.onrender.com"
 
 # Configuração de Imagens
-base_dir = Path(__file__).parent
-images_path = (base_dir / '../images').resolve()
-if images_path.exists():
-    try: app.add_static_files('/images', str(images_path))
-    except: pass
+try:
+    base_dir = Path(__file__).parent.resolve()
+    images_path = (base_dir.parent / 'images').resolve()
+    if images_path.exists():
+        app.add_static_files('/images', str(images_path))
+except: pass
 
 class TarefaConcluida:
     def __init__(self):
@@ -21,6 +22,7 @@ class TarefaConcluida:
             "sequencia": "..."
         }
         self.loading = True
+        self.id_prova = None
 
     async def fetch_stats(self, id_prova):
         if not id_prova or not self.token:
@@ -36,7 +38,6 @@ class TarefaConcluida:
                     alvo = next((item for item in lista if str(item.get('id_conjunto_questao')) == str(id_prova)), None)
                     
                     if alvo:
-                        # 1. Pontos
                         pt = alvo.get('pontos', 0)
                         self.dados["pontos"] = str(int(pt))
 
@@ -60,14 +61,11 @@ class TarefaConcluida:
                                 m = int(partes[0])
                                 s = int(partes[1])
                                 self.dados["tempo"] = f"{m:02}:{s:02}"
-                            
                             else:
                                 self.dados["tempo"] = tempo_cru
                         except:
-                            # Fallback se der erro na conversão
                             self.dados["tempo"] = tempo_cru
                         
-                        # 4. Sequência
                         self.dados["sequencia"] = str(alvo.get('sequencia_acerto', 0))
 
         except Exception as e:
@@ -111,7 +109,7 @@ class TarefaConcluida:
                         stat_card(self.dados['tempo'], "Tempo Total")
                         stat_card(self.dados['pontos'], "Pontos")
                         stat_card(self.dados['precisao'], "Precisão")
-                        stat_card(self.dados['sequencia'], "Acertos")
+                        stat_card(self.dados['sequencia'], "Sequência")
 
                 with ui.row().classes('gap-4 flex-wrap justify-center w-full'):
                     

@@ -62,6 +62,7 @@ class Questoes:
                             lista_crua = dados_api.get('questoes', [])
                     except: pass
 
+                # Geração de Nova Prova (apenas se não for atualização de gabarito)
                 if not apenas_atualizar:
                     if not lista_crua and response.status_code != 403:
                         if state.indice_atual == 0:
@@ -114,6 +115,7 @@ class Questoes:
                 return res.status_code == 200 and res.text.strip().lower() == 'true'
         except: return False
 
+    # --- FUNÇÃO RESGATE: Busca resposta no histórico se a API fechar a prova ---
     async def buscar_resposta_historico(self, id_questao):
         try:
             async with httpx.AsyncClient(headers=self.get_headers()) as client:
@@ -121,6 +123,7 @@ class Questoes:
                 if r.status_code == 200:
                     for prova in r.json():
                         qs = prova.get('questoes', [])
+                        # Tratamento para listas aninhadas
                         if qs and isinstance(qs, list) and isinstance(qs[0], dict) and 'questoes' in qs[0]:
                             qs = qs[0]['questoes']
                         
@@ -131,6 +134,7 @@ class Questoes:
         return ""
 
     def proxima(self):
+        # Se for a última questão, navega para a conclusão
         if state.indice_atual >= len(state.questoes) - 1:
             id_final = state.id_conjunto_atual
             state.reset()
@@ -158,9 +162,14 @@ class Questoes:
 
         if not state.questoes:
             with ui.column().classes('w-full h-screen items-center justify-center'):
-                ui.label('Erro ao carregar.').classes('text-xl')
-                ui.button('Tentar Novamente', on_click=lambda: self.carregar_questoes_api(True))
+                ui.label('Nenhuma questão encontrada.').classes('text-xl')
+                ui.button('Voltar', on_click=self.sair)
             return 
+
+        # Proteção de índice
+        if state.indice_atual >= len(state.questoes):
+            self.proxima()
+            return
 
         dados = state.questoes[state.indice_atual]
         eh_ultima = state.indice_atual == len(state.questoes) - 1
@@ -191,16 +200,21 @@ class Questoes:
                         async def click_op(btn, op):
                             for b_obj, _ in lista_botoes: b_obj.disable()
                             
+                            # 1. Envia Resposta
                             acertou = await self.registrar_resposta_api(dados['id'], op['indice'])
                             
+                            # 2. Tenta pegar gabarito da API ativa
                             await self.carregar_questoes_api(forcar_atualizacao=True, apenas_atualizar=True)
                             
+                            # 3. Verifica se pegou a resposta
                             dados_atualizados = state.questoes[state.indice_atual]
                             texto_correto = dados_atualizados.get('resposta_correta_texto', '')
 
+                            # 4. SALVA-VIDAS: Se a prova fechou e veio vazio, busca no histórico
                             if not texto_correto:
                                 texto_correto = await self.buscar_resposta_historico(dados['id'])
 
+                            # 5. Feedback Visual (SEM POPUPS)
                             if acertou:
                                 btn.classes('!bg-green-100 !border-green-500 !text-green-900')
                                 btn.props('icon=check')
@@ -208,6 +222,7 @@ class Questoes:
                                 btn.classes('!bg-red-100 !border-red-500 !text-red-900')
                                 btn.props('icon=close')
                                 
+                                # Pinta a certa
                                 achou = False
                                 for b_obj, op_data in lista_botoes:
                                     if str(op_data['texto']).strip().lower() == str(texto_correto).strip().lower():
@@ -215,6 +230,7 @@ class Questoes:
                                         b_obj.props('icon=check')
                                         achou = True
                                 
+                                # Fallback apenas se não conseguir pintar o botão (caso extremo)
                                 if not achou and texto_correto:
                                     ui.notify(f"Resposta: {texto_correto}", type='warning', timeout=5000)
 
@@ -230,6 +246,7 @@ class Questoes:
                             b.on('click', lambda _, btn=b, o=op: click_op(btn, o))
                             lista_botoes.append((b, op))
                         
+                        # --- BOTÃO PRÓXIMA / CONCLUIR ---
                         texto_botao = 'Concluir Atividade' if eh_ultima else 'Próxima'
                         cor_botao = 'green' if eh_ultima else '[#1e2e45]'
                         
