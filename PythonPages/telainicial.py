@@ -3,12 +3,11 @@ import requests
 from datetime import datetime, timedelta
 from pathlib import Path
 import calendar
-import time  # Importante para o anti-cache
+import time
 
 # ====== CONFIGURAÇÕES DE API ======
 API_URL_BASE = 'https://lexora-api.onrender.com/'
 
-# Opções (IDs devem ser inteiros > 0)
 EXPERIENCIAS = {1: 'Básico', 2: 'Intermediário', 3: 'Avançado'}
 OBJETIVOS = {1: 'Viagem', 2: 'Trabalho', 3: 'Morar fora', 4: 'Tecnologia'}
 DISPONIBILIDADES = {1: 'Leve (0.5h)', 2: 'Moderado (1h)', 3: 'Intenso (2h)'}
@@ -18,45 +17,30 @@ def get_headers() -> dict:
     if not token: return {'accept': 'application/json'}
     return {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json', 'accept': 'application/json'}
 
-# Função GET com Anti-Cache (Força dados novos)
 def get_json(path: str, default):
     try:
         url = f'{API_URL_BASE}{path}'
-        # Adiciona timestamp para evitar que o navegador/proxy use cache antigo
         separator = '&' if '?' in url else '?'
         url += f'{separator}_t={int(time.time())}'
-        
         resp = requests.get(url, headers=get_headers(), timeout=10)
         return resp.json() if resp.status_code == 200 else default
     except: return default
 
-# Mantemos POST pois PUT retornou 405
-def post_json(path: str, data: dict):
-    print(f"🚀 [POST] Enviando Payload...")
-    try:
-        resp = requests.post(f'{API_URL_BASE}{path}', json=data, headers=get_headers(), timeout=15)
-        print(f"📥 [RESP] {resp.status_code} | {resp.text}")
-        # Aceita 200 ou 201 como sucesso
-        return resp.status_code in [200, 201]
-    except Exception as e:
-        print(f"❌ [ERRO] {e}")
-        return False
-    
 def put_json(path: str, data: dict):
-    print(f"🚀 [PUT] Enviando Payload...")
     try:
         resp = requests.put(f'{API_URL_BASE}{path}', json=data, headers=get_headers(), timeout=15)
-        print(f"📥 [RESP] {resp.status_code} | {resp.text}")
         return resp.status_code == 200
     except Exception as e:
         print(f"❌ [ERRO] {e}")
         return False
 
 # ====== ARQUIVOS ESTÁTICOS ======
-basedir = Path(__file__).parent.resolve()
-possible_paths = [basedir / 'images', basedir.parent / 'images', Path('images').absolute()]
-images_dir = next((p for p in possible_paths if p.is_dir()), None)
-if images_dir: app.add_static_files('/images', str(images_dir))
+try:
+    base_dir = Path(__file__).parent.resolve()
+    images_path = (base_dir.parent / 'images').resolve()
+    if images_path.exists():
+        app.add_static_files('/images', str(images_path))
+except: pass
 
 PRIMARY = '#1153BE'
 LOGO_PATH = '/images/logo.png'
@@ -85,7 +69,7 @@ body { background-color: #f8fafc; }
 </style>
 """, shared=True)
 
-# Endpoints de busca
+# Busca Dados
 def buscar_dados_perfil(): return get_json('usuarios/UsuarioInformacao', {})
 def buscar_estatisticas_gerais(): return get_json('relatorio/EstatisticaUsuario', {})
 def buscar_ofensiva(): return get_json('relatorio/OfensivaUsuario', {})
@@ -147,41 +131,41 @@ def mudar_mes(delta):
 def render_tela_inicial() -> None:
     if not app.storage.user.get('token'): return ui.navigate.to('/')
 
-    # Carrega Dados (usando função anti-cache)
+    # Carrega Dados Iniciais
     perfil = buscar_dados_perfil() or {}
     estatisticas = buscar_estatisticas_gerais() or {}
     historico = buscar_historico_pontos() or []
     dados_ofensiva = buscar_ofensiva() or {}
 
-    # --- Extração Segura de IDs ---
-    id_idioma_atual = perfil.get('usuario_experiencia_idioma', {}).get('id_idioma') or 2
+    # --- Extração Segura de IDs (FORÇANDO INT) ---
+    dados_idioma = perfil.get('usuario_experiencia_idioma') or {}
+    id_idioma_atual = int(dados_idioma.get('id_idioma') or 2)
     if id_idioma_atual < 1: id_idioma_atual = 2
 
-    id_exp_atual = perfil.get('usuario_experiencia_idioma', {}).get('id_experiencia_idioma') or 1
+    id_exp_atual = int(dados_idioma.get('id_experiencia_idioma') or 1)
     if id_exp_atual < 1: id_exp_atual = 1
 
-    id_obj_atual = perfil.get('objetivos_usuario', {}).get('id_objetivo') or 1
+    dados_obj = perfil.get('objetivos_usuario') or {}
+    id_obj_atual = int(dados_obj.get('id_objetivo') or 1)
     if id_obj_atual < 1: id_obj_atual = 1
 
-    # Lógica de Disponibilidade
-    id_disp_atual = perfil.get('id_disponibilidade') or perfil.get('disponibilidade', {}).get('id_disponibilidade')
-    if not id_disp_atual or int(id_disp_atual) < 1:
-        desc_disp = perfil.get('descricao_disponibilidade', '')
-        id_disp_atual = 1
-        if 'Moderado' in desc_disp: id_disp_atual = 2
-        elif 'Intenso' in desc_disp: id_disp_atual = 3
-    else: id_disp_atual = int(id_disp_atual)
+    dados_disp = perfil.get('disponibilidade') or {}
+    val_disp = perfil.get('id_disponibilidade') or dados_disp.get('id_disponibilidade')
+    id_disp_atual = int(val_disp) if val_disp else 1
+    if id_disp_atual < 1: id_disp_atual = 1
 
-    nome_atual = perfil.get('nome', '')
-    email_atual = perfil.get('email', '')
-    # Telefone removido das variáveis
-    
+    nome_atual = perfil.get('nome', 'Usuário')
+    email_atual = perfil.get('email', '---')
     data_raw = perfil.get('data_nascimento', '')
     data_iso = data_raw.split('T')[0] if data_raw and len(data_raw) > 9 else "2000-01-01"
+    
+    nasc_formatado = ''
+    if data_raw:
+        try: nasc_formatado = datetime.strptime(data_iso, '%Y-%m-%d').strftime('%d/%m/%Y')
+        except: pass
 
-    print(f"DEBUG: Carregado -> Exp:{id_exp_atual}, Obj:{id_obj_atual}, Disp:{id_disp_atual}")
+    refs = {'nivel': None, 'objetivo': None}
 
-    # --- Modal de Edição ---
     dialog_perfil = ui.dialog()
     with dialog_perfil, ui.card().style('min-width:350px; border-radius:16px; padding:24px; display:flex; flex-direction:column; gap:16px'):
         ui.label('Alterar Perfil').style('font-size:18px; font-weight:700; color:#1e293b')
@@ -193,84 +177,35 @@ def render_tela_inicial() -> None:
         sel_disp = ui.select(options=DISPONIBILIDADES, value=id_disp_atual, label='Disponibilidade').classes('w-full').props('outlined dense')
         
         def salvar_alteracao():
-            try:
-                # Garante que são inteiros
-                val_exp = int(sel_exp.value) if sel_exp.value else id_exp_atual
-                val_obj = int(sel_obj.value) if sel_obj.value else id_obj_atual
-                val_disp = int(sel_disp.value) if sel_disp.value else id_disp_atual
+            try: v_exp = int(sel_exp.value)
+            except: v_exp = 1
+            try: v_obj = int(sel_obj.value)
+            except: v_obj = 1
+            try: v_disp = int(sel_disp.value)
+            except: v_disp = 1
+            
+            payload = {
+                "id_idioma": id_idioma_atual,
+                "id_experiencia_idioma": v_exp,
+                "id_objetivo": v_obj,
+                "id_disponibilidade": v_disp,
+                "data_nascimento": data_iso
+            }
+            
+            if put_json('usuarios/UsuarioInformacao', payload):
+                ui.notify('Perfil atualizado!', color='positive')
                 
-                # Garante id_idioma seguro
-                id_idioma_safe = id_idioma_atual if id_idioma_atual >= 1 else 2
-
-                # --- SUPER PAYLOAD ---
-                # Enviamos os IDs em vários formatos para garantir que a API reconheça um deles sds                              
-                payload = {
-                    "id_idioma": id_idioma_safe,
-                    "id_experiencia_idioma": val_exp,
-                    "id_objetivo": val_obj,
-                    "id_disponibilidade": val_disp,
-                    "data_nascimento": data_iso
-                }
-                print(f"🚀 [PAYLOAD] {payload}")
-                print(app.storage.user.get('token'))
-                if put_json('usuarios/UsuarioInformacao', payload):
-                    ui.notify('Perfil atualizado!', color='positive')
-                    dialog_perfil.close()
-                    # Aguarda 1s para o banco persistir antes de recarregar
-                    ui.timer(1.0, lambda: ui.navigate.reload())
-                else:
-                    ui.notify('Erro ao atualizar. Verifique o console.', color='negative')
-            except Exception as e:
-                print(f"Erro no salvar: {e}")
-                ui.notify('Erro interno.', color='negative')
+                if refs['nivel']: refs['nivel'].set_text(EXPERIENCIAS.get(v_exp, ''))
+                if refs['objetivo']: refs['objetivo'].set_text(OBJETIVOS.get(v_obj, ''))
+                
+                dialog_perfil.close()
+            else:
+                ui.notify('Erro ao salvar.', color='negative')
 
         with ui.row().classes('w-full justify-end'):
             ui.button('Cancelar', on_click=dialog_perfil.close).props('flat color=grey')
             ui.button('Confirmar', on_click=salvar_alteracao).props('unelevated color=primary')
 
-    # --- UI Layout ---
-    nasc_formatado = ''
-    if data_raw:
-        try: nasc_formatado = datetime.strptime(data_raw.split('T')[0], '%Y-%m-%d').strftime('%d / %m / %Y')
-        except: pass
-
-    desc_idioma = perfil.get('usuario_experiencia_idioma', {}).get('descricao_idioma', 'Inglês')
-    desc_nivel = perfil.get('usuario_experiencia_idioma', {}).get('descricao_experiencia_idioma', 'Básico')
-    desc_objetivo = perfil.get('objetivos_usuario', {}).get('descricao_objetivo', 'Viagem')
-
-    # Dados Grafico e Ofensiva
-    vals_graf = []
-    cal_state.datas_ativas = set()
-    if isinstance(historico, list):
-        historico.sort(key=lambda x: x.get('data', ''))
-        for item in historico:
-            pts = float(item.get('pontos', 0))
-            vals_graf.append(pts)
-            if pts > 0: cal_state.datas_ativas.add(item.get('data', '').split('T')[0])
-            
-    meta_data = buscar_atividade_meta()
-    if isinstance(meta_data, list) and meta_data: meta_data = meta_data[-1]
-    if not isinstance(meta_data, dict): meta_data = {}
-    meta_hoje = meta_data.get('atividades_feitas', 0)
-    meta_alvo = meta_data.get('meta', 5)
-    pct_meta = min(meta_hoje / meta_alvo, 1.0) if meta_alvo > 0 else 0
-    
-    # Lógica de Ofensiva Corrigida
-    dias_ofensiva = 0
-    if isinstance(dados_ofensiva, dict):
-        dias_ofensiva = (
-            dados_ofensiva.get('seq_atual') or 
-            dados_ofensiva.get('dias') or 
-            dados_ofensiva.get('sequencia') or 
-            0
-        )
-    elif isinstance(dados_ofensiva, int):
-        dias_ofensiva = dados_ofensiva
-    
-    if dias_ofensiva == 0 and estatisticas.get('ultima_sequencia', 0) > 0:
-        dias_ofensiva = estatisticas.get('ultima_sequencia', 0)
-
-    # Layout Principal
     with ui.column().classes('w-full').style('align-items:center; gap:0'):
         with ui.row().classes('w-full justify-between items-center').style('padding:8px 24px; max-width:1100px'):
             ui.image(LOGO_PATH).props('fit=contain').style('width:120px; height:auto; max-height:45px;')
@@ -282,21 +217,42 @@ def render_tela_inicial() -> None:
                 ui.html(f'<div class="perfil-row"><span class="perfil-icon">👤</span><span class="perfil-value">Nome completo<br><span style="font-weight:400;font-size:12px;color:#64748b">{nome_atual}</span></span></div>', sanitize=False)
                 ui.html(f'<div class="perfil-row"><span class="perfil-icon">📅</span><span class="perfil-value">Data de nascimento<br><span style="font-weight:400;font-size:12px;color:#64748b">{nasc_formatado}</span></span></div>', sanitize=False)
                 ui.html(f'<div class="perfil-row"><span class="perfil-icon">✉️</span><span class="perfil-value">E-mail<br><span style="font-weight:400;font-size:12px;color:#64748b">{email_atual}</span></span></div>', sanitize=False)
-                # Telefone removido da visualização
+                
+                desc_idioma = (perfil.get('usuario_experiencia_idioma') or {}).get('descricao_idioma', 'Inglês')
                 ui.html(f'<div class="perfil-row"><span class="perfil-icon">🌐</span><span class="perfil-value">Idioma<br><span style="font-weight:400;font-size:12px;color:#64748b">{desc_idioma}</span></span></div>', sanitize=False)
                 ui.separator().style('margin:10px 0')
                 ui.button('Alterar perfil', on_click=dialog_perfil.open).props('outline dense icon=edit').classes('w-full').style('color:#1153BE; font-size:12px; border-radius:8px')
 
             with ui.column().classes('center-card'):
                 ui.label('Meu aprendizado').style('font-size:20px; font-weight:800; color:#0f172a; margin-bottom:16px')
+                
                 with ui.row().classes('w-full').style('gap:10px; margin-bottom:24px; flex-wrap:nowrap'):
-                    itens_stats = [('public', 'blue', 'Idioma', desc_idioma), ('star', 'orange', 'Nível', desc_nivel), ('track_changes', 'green', 'Objetivo', desc_objetivo)]
-                    for ic, col, lb1, lb2 in itens_stats:
-                        with ui.row().classes(f'bg-{col}-1').style(f'flex:1; padding:12px; border-radius:12px; align-items:center; gap:8px'):
-                            ui.icon(ic, color=f'{col}-8').style('font-size:20px')
-                            with ui.column().style('gap:0'):
-                                ui.label(lb1).style(f'font-size:10px; font-weight:700; color:{col}-6')
-                                ui.label(lb2).classes(f'text-{col}-9').style('font-size:12px; font-weight:700')
+                    with ui.row().classes(f'bg-blue-1').style(f'flex:1; padding:12px; border-radius:12px; align-items:center; gap:8px'):
+                        ui.icon('public', color=f'blue-8').style('font-size:20px')
+                        with ui.column().style('gap:0'):
+                            ui.label('Idioma').style(f'font-size:10px; font-weight:700; color:blue-6')
+                            ui.label(desc_idioma).classes(f'text-blue-9').style('font-size:12px; font-weight:700')
+                    
+                    with ui.row().classes(f'bg-orange-1').style(f'flex:1; padding:12px; border-radius:12px; align-items:center; gap:8px'):
+                        ui.icon('star', color=f'orange-8').style('font-size:20px')
+                        with ui.column().style('gap:0'):
+                            ui.label('Nível').style(f'font-size:10px; font-weight:700; color:orange-6')
+                            txt_nivel = (perfil.get('usuario_experiencia_idioma') or {}).get('descricao_experiencia_idioma', 'Básico')
+                            refs['nivel'] = ui.label(txt_nivel).classes('text-orange-9').style('font-size:12px; font-weight:700')
+
+                    with ui.row().classes(f'bg-green-1').style(f'flex:1; padding:12px; border-radius:12px; align-items:center; gap:8px'):
+                        ui.icon('track_changes', color=f'green-8').style('font-size:20px')
+                        with ui.column().style('gap:0'):
+                            ui.label('Objetivo').style(f'font-size:10px; font-weight:700; color:green-6')
+                            txt_obj = (perfil.get('objetivos_usuario') or {}).get('descricao_objetivo', 'Viagem')
+                            refs['objetivo'] = ui.label(txt_obj).classes('text-green-9').style('font-size:12px; font-weight:700')
+
+                meta_data = buscar_atividade_meta()
+                if isinstance(meta_data, list) and meta_data: meta_data = meta_data[-1]
+                if not isinstance(meta_data, dict): meta_data = {}
+                meta_hoje = meta_data.get('atividades_feitas', 0)
+                meta_alvo = meta_data.get('meta', 5)
+                pct_meta = min(meta_hoje / meta_alvo, 1.0) if meta_alvo > 0 else 0
 
                 with ui.row().classes('w-full justify-between items-end mb-1'):
                     ui.label('Meta diária').style('font-size:14px; font-weight:700; color:#0f172a')
@@ -311,6 +267,14 @@ def render_tela_inicial() -> None:
                     for val, txt in [(estatisticas.get('dias_ativo',0),'Dias ativos'), (estatisticas.get('atividades_feitas',0),'Atividades feitas'), (f"{int(estatisticas.get('pontos_totais',0)):,}".replace(',','.'),'Total de pontos')]:
                         with ui.column().classes('estat-box'): ui.label(str(val)).classes('estat-num'); ui.label(txt).classes('estat-sub')
                 
+                dias_ofensiva = 0
+                if isinstance(dados_ofensiva, dict):
+                    dias_ofensiva = dados_ofensiva.get('seq_atual') or dados_ofensiva.get('dias') or 0
+                elif isinstance(dados_ofensiva, int): dias_ofensiva = dados_ofensiva
+                
+                if dias_ofensiva == 0 and estatisticas.get('ultima_sequencia', 0) > 0:
+                    dias_ofensiva = estatisticas.get('ultima_sequencia', 0)
+
                 with ui.row().classes('w-full justify-center').style('gap:12px; margin-bottom:32px'):
                      with ui.column().classes('estat-box').style('max-width:200px'):
                         ui.label(str(dias_ofensiva)).classes('estat-num')
@@ -321,8 +285,18 @@ def render_tela_inicial() -> None:
 
                 ui.label('Pontos').style('font-size:14px; font-weight:700; color:#0f172a; margin:0 auto')
                 ui.label('Últimos 15 dias').style('font-size:11px; color:#64748b; margin:0 auto')
+                
+                vals_graf = []
+                cal_state.datas_ativas = set()
+                if isinstance(historico, list):
+                    for item in historico:
+                        pts = float(item.get('pontos', 0))
+                        vals_graf.append(pts)
+                        if pts > 0: cal_state.datas_ativas.add(item.get('data', '').split('T')[0])
+                
                 grafico_barras_minimalista(vals_graf)
 
+            # Coluna Direita
             with ui.column().classes('right-card'):
                 with ui.column().classes('rc-box'):
                     with ui.row().classes('w-full justify-between items-center mb-3'):
