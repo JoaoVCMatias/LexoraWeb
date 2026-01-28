@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import calendar
 import time
+import json
 
 # ====== CONFIGURAÇÕES DE API ======
 API_URL_BASE = 'https://lexora-api.onrender.com/'
@@ -11,6 +12,9 @@ API_URL_BASE = 'https://lexora-api.onrender.com/'
 EXPERIENCIAS = {1: 'Básico', 2: 'Intermediário', 3: 'Avançado'}
 OBJETIVOS = {1: 'Viagem', 2: 'Trabalho', 3: 'Morar fora', 4: 'Tecnologia'}
 DISPONIBILIDADES = {1: 'Leve (0.5h)', 2: 'Moderado (1h)', 3: 'Intenso (2h)'}
+
+# === CORREÇÃO AQUI: Intenso (3) agora vale 15, não 20 ===
+METAS_PADRAO = {1: 5, 2: 10, 3: 15}
 
 def get_headers() -> dict:
     token = app.storage.user.get('token')
@@ -27,9 +31,11 @@ def get_json(path: str, default):
     except: return default
 
 def put_json(path: str, data: dict):
+    print(f"🚀 [PUT] Payload: {json.dumps(data)}") 
     try:
         resp = requests.put(f'{API_URL_BASE}{path}', json=data, headers=get_headers(), timeout=15)
-        return resp.status_code == 200
+        print(f"📥 [RESP] {resp.status_code} | {resp.text}")
+        return resp.status_code in [200, 201]
     except Exception as e:
         print(f"❌ [ERRO] {e}")
         return False
@@ -131,29 +137,48 @@ def mudar_mes(delta):
 def render_tela_inicial() -> None:
     if not app.storage.user.get('token'): return ui.navigate.to('/')
 
-    # Carrega Dados Iniciais
+
     perfil = buscar_dados_perfil() or {}
     estatisticas = buscar_estatisticas_gerais() or {}
     historico = buscar_historico_pontos() or []
     dados_ofensiva = buscar_ofensiva() or {}
 
-    # --- Extração Segura de IDs (FORÇANDO INT) ---
+    id_usuario_geral = perfil.get('id_usuario')
+
+
     dados_idioma = perfil.get('usuario_experiencia_idioma') or {}
     id_idioma_atual = int(dados_idioma.get('id_idioma') or 2)
-    if id_idioma_atual < 1: id_idioma_atual = 2
 
-    id_exp_atual = int(dados_idioma.get('id_experiencia_idioma') or 1)
-    if id_exp_atual < 1: id_exp_atual = 1
 
+    val_exp_id = dados_idioma.get('id_experiencia_idioma')
+    if val_exp_id and int(val_exp_id) > 0: id_exp_atual = int(val_exp_id)
+    else:
+        desc_exp = str(dados_idioma.get('descricao_experiencia_idioma', '')).lower()
+        if 'avançado' in desc_exp or 'avancado' in desc_exp: id_exp_atual = 3
+        elif 'intermediário' in desc_exp or 'intermediario' in desc_exp: id_exp_atual = 2
+        else: id_exp_atual = 1
+
+    # 3. OBJETIVO
     dados_obj = perfil.get('objetivos_usuario') or {}
-    id_obj_atual = int(dados_obj.get('id_objetivo') or 1)
-    if id_obj_atual < 1: id_obj_atual = 1
+    val_obj_id = dados_obj.get('id_objetivo')
+    if val_obj_id and int(val_obj_id) > 0: id_obj_atual = int(val_obj_id)
+    else:
+        desc_obj = str(dados_obj.get('descricao_objetivo', '')).lower()
+        if 'trabalho' in desc_obj: id_obj_atual = 2
+        elif 'morar' in desc_obj: id_obj_atual = 3
+        elif 'tecnologia' in desc_obj: id_obj_atual = 4
+        else: id_obj_atual = 1
 
-    dados_disp = perfil.get('disponibilidade') or {}
-    val_disp = perfil.get('id_disponibilidade') or dados_disp.get('id_disponibilidade')
-    id_disp_atual = int(val_disp) if val_disp else 1
-    if id_disp_atual < 1: id_disp_atual = 1
+    # 4. DISPONIBILIDADE
+    val_disp_id = perfil.get('id_disponibilidade') or perfil.get('disponibilidade', {}).get('id_disponibilidade')
+    if val_disp_id and int(val_disp_id) > 0: id_disp_atual = int(val_disp_id)
+    else:
+        desc_disp = str(perfil.get('descricao_disponibilidade', '')).lower()
+        if 'intenso' in desc_disp: id_disp_atual = 3
+        elif 'moderado' in desc_disp: id_disp_atual = 2
+        else: id_disp_atual = 1
 
+    # Dados UI
     nome_atual = perfil.get('nome', 'Usuário')
     email_atual = perfil.get('email', '---')
     data_raw = perfil.get('data_nascimento', '')
@@ -164,12 +189,24 @@ def render_tela_inicial() -> None:
         try: nasc_formatado = datetime.strptime(data_iso, '%Y-%m-%d').strftime('%d/%m/%Y')
         except: pass
 
-    refs = {'nivel': None, 'objetivo': None}
+    # --- DADOS DA META ---
+    meta_data = buscar_atividade_meta()
+    if isinstance(meta_data, list) and meta_data: meta_data = meta_data[-1]
+    if not isinstance(meta_data, dict): meta_data = {}
+    
+    meta_hoje = meta_data.get('atividades_feitas', 0)
+    meta_alvo_inicial = meta_data.get('meta', 5)
+
+    refs = {
+        'nivel': None, 
+        'objetivo': None,
+        'lbl_meta': None,
+        'bar_meta': None
+    }
 
     dialog_perfil = ui.dialog()
     with dialog_perfil, ui.card().style('min-width:350px; border-radius:16px; padding:24px; display:flex; flex-direction:column; gap:16px'):
         ui.label('Alterar Perfil').style('font-size:18px; font-weight:700; color:#1e293b')
-        
         ui.input(value='Inglês').props('readonly outlined dense').classes('w-full')
         
         sel_exp = ui.select(options=EXPERIENCIAS, value=id_exp_atual, label='Experiência').classes('w-full').props('outlined dense')
@@ -185,11 +222,12 @@ def render_tela_inicial() -> None:
             except: v_disp = 1
             
             payload = {
+                "id_usuario": id_usuario_geral if id_usuario_geral else 0,
+                "data_nascimento": data_iso,
                 "id_idioma": id_idioma_atual,
                 "id_experiencia_idioma": v_exp,
                 "id_objetivo": v_obj,
-                "id_disponibilidade": v_disp,
-                "data_nascimento": data_iso
+                "id_disponibilidade": v_disp
             }
             
             if put_json('usuarios/UsuarioInformacao', payload):
@@ -198,6 +236,15 @@ def render_tela_inicial() -> None:
                 if refs['nivel']: refs['nivel'].set_text(EXPERIENCIAS.get(v_exp, ''))
                 if refs['objetivo']: refs['objetivo'].set_text(OBJETIVOS.get(v_obj, ''))
                 
+                novo_alvo = METAS_PADRAO.get(v_disp, 5) 
+                novo_pct = min(meta_hoje / novo_alvo, 1.0)
+                
+                if refs['lbl_meta']:
+                    refs['lbl_meta'].set_text(f'{int(meta_hoje)}/{novo_alvo} lições')
+                
+                if refs['bar_meta']:
+                    refs['bar_meta'].style(f'height:100%; width:{novo_pct*100}%; background:#1e293b; border-radius:99px')
+
                 dialog_perfil.close()
             else:
                 ui.notify('Erro ao salvar.', color='negative')
@@ -212,6 +259,7 @@ def render_tela_inicial() -> None:
             ui.button('Sair', on_click=lambda: (app.storage.user.clear(), ui.navigate.to('/'))).props('flat dense icon-right=logout').style('color:#64748b; font-size:12px')
 
         with ui.element('div').classes('page-wrap'):
+
             with ui.column().classes('menu-card'):
                 ui.label('Meu perfil').style('font-size:16px; font-weight:800; color:#0f172a; margin-bottom:16px')
                 ui.html(f'<div class="perfil-row"><span class="perfil-icon">👤</span><span class="perfil-value">Nome completo<br><span style="font-weight:400;font-size:12px;color:#64748b">{nome_atual}</span></span></div>', sanitize=False)
@@ -237,30 +285,26 @@ def render_tela_inicial() -> None:
                         ui.icon('star', color=f'orange-8').style('font-size:20px')
                         with ui.column().style('gap:0'):
                             ui.label('Nível').style(f'font-size:10px; font-weight:700; color:orange-6')
-                            txt_nivel = (perfil.get('usuario_experiencia_idioma') or {}).get('descricao_experiencia_idioma', 'Básico')
+                            txt_nivel = EXPERIENCIAS.get(id_exp_atual, 'Básico')
                             refs['nivel'] = ui.label(txt_nivel).classes('text-orange-9').style('font-size:12px; font-weight:700')
 
                     with ui.row().classes(f'bg-green-1').style(f'flex:1; padding:12px; border-radius:12px; align-items:center; gap:8px'):
                         ui.icon('track_changes', color=f'green-8').style('font-size:20px')
                         with ui.column().style('gap:0'):
                             ui.label('Objetivo').style(f'font-size:10px; font-weight:700; color:green-6')
-                            txt_obj = (perfil.get('objetivos_usuario') or {}).get('descricao_objetivo', 'Viagem')
+                            txt_obj = OBJETIVOS.get(id_obj_atual, 'Viagem')
                             refs['objetivo'] = ui.label(txt_obj).classes('text-green-9').style('font-size:12px; font-weight:700')
 
-                meta_data = buscar_atividade_meta()
-                if isinstance(meta_data, list) and meta_data: meta_data = meta_data[-1]
-                if not isinstance(meta_data, dict): meta_data = {}
-                meta_hoje = meta_data.get('atividades_feitas', 0)
-                meta_alvo = meta_data.get('meta', 5)
-                pct_meta = min(meta_hoje / meta_alvo, 1.0) if meta_alvo > 0 else 0
+                pct_meta_inicial = min(meta_hoje / meta_alvo_inicial, 1.0) if meta_alvo_inicial > 0 else 0
 
                 with ui.row().classes('w-full justify-between items-end mb-1'):
                     ui.label('Meta diária').style('font-size:14px; font-weight:700; color:#0f172a')
                     ui.button('PRATICAR', on_click=lambda: ui.navigate.to('/questoes')).props('dense unelevated').classes('bg-blue-600 text-white').style('border-radius:8px; font-weight:700; font-size:11px; padding:4px 12px')
                 
-                ui.label(f'{int(meta_hoje)}/{int(meta_alvo)} lições').style('font-size:11px; font-weight:600; color:#64748b; margin-top:-24px; margin-bottom:8px; margin-left: auto; margin-right: 90px;')
+                refs['lbl_meta'] = ui.label(f'{int(meta_hoje)}/{int(meta_alvo_inicial)} lições').style('font-size:11px; font-weight:600; color:#64748b; margin-top:-24px; margin-bottom:8px; margin-left: auto; margin-right: 90px;')
+                
                 with ui.element('div').classes('w-full').style('height:8px; background:#f1f5f9; border-radius:99px; overflow:hidden; margin-bottom:32px'):
-                    ui.element('div').style(f'height:100%; width:{pct_meta*100}%; background:#1e293b; border-radius:99px')
+                    refs['bar_meta'] = ui.element('div').style(f'height:100%; width:{pct_meta_inicial*100}%; background:#1e293b; border-radius:99px')
 
                 ui.label('ESTATÍSTICAS').style('font-size:11px; font-weight:800; color:#0f172a; text-transform:uppercase; margin:0 auto 16px auto')
                 with ui.row().classes('w-full').style('gap:12px; margin-bottom:32px'):
@@ -296,7 +340,6 @@ def render_tela_inicial() -> None:
                 
                 grafico_barras_minimalista(vals_graf)
 
-            # Coluna Direita
             with ui.column().classes('right-card'):
                 with ui.column().classes('rc-box'):
                     with ui.row().classes('w-full justify-between items-center mb-3'):
