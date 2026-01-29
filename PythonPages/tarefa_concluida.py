@@ -38,28 +38,33 @@ class TarefaConcluida:
                     alvo = next((item for item in lista if str(item.get('id_conjunto_questao')) == str(id_prova)), None)
                     
                     if alvo:
-                        pt = alvo.get('pontos', 0)
-                        self.dados["pontos"] = str(int(pt))
 
-                        self.dados["precisao"] = f"{alvo.get('porcentagem_acerto', 0)}%"
+                        try:
+
+                            pt = int(float(alvo.get('pontos', 0))) 
+                            self.dados["pontos"] = str(pt)
+                        except:
+                            self.dados["pontos"] = "0"
+                            
+                        try:
+                            acc = float(alvo.get('porcentagem_acerto', 0))
+                            if acc.is_integer():
+                                self.dados["precisao"] = f"{int(acc)}%"
+                            else:
+                                self.dados["precisao"] = f"{acc:.1f}%"
+                        except:
+                            self.dados["precisao"] = "0%"
                         
-                        tempo_cru = str(alvo.get('tempo', '00:00:00')).split('.')[0] # Remove milissegundos
+                        tempo_cru = str(alvo.get('tempo', '00:00:00')).split('.')[0]
                         partes = tempo_cru.split(':')
                         
                         try:
                             if len(partes) == 3:
-                                h = int(partes[0])
-                                m = int(partes[1])
-                                s = int(partes[2])
-                                
-                                if h > 0:
-                                    self.dados["tempo"] = f"{h}:{m:02}:{s:02}"
-                                else:
-                                    self.dados["tempo"] = f"{m:02}:{s:02}"
-                            
+                                h, m, s = int(partes[0]), int(partes[1]), int(partes[2])
+                                if h > 0: self.dados["tempo"] = f"{h}:{m:02}:{s:02}"
+                                else: self.dados["tempo"] = f"{m:02}:{s:02}"
                             elif len(partes) == 2:
-                                m = int(partes[0])
-                                s = int(partes[1])
+                                m, s = int(partes[0]), int(partes[1])
                                 self.dados["tempo"] = f"{m:02}:{s:02}"
                             else:
                                 self.dados["tempo"] = tempo_cru
@@ -102,8 +107,8 @@ class TarefaConcluida:
                     with ui.grid().classes('w-full max-w-4xl grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 mb-12'):
                         
                         def stat_card(valor, label):
-                            with ui.column().classes('bg-blue-50 rounded-2xl p-6 items-center justify-center gap-1'):
-                                ui.label(valor).classes('text-3xl md:text-4xl font-bold text-blue-900')
+                            with ui.column().classes('bg-blue-50 rounded-2xl p-6 items-center justify-center gap-1 overflow-hidden'):
+                                ui.label(valor).classes('text-3xl md:text-4xl font-bold text-blue-900 text-center break-all leading-tight')
                                 ui.label(label).classes('text-xs md:text-sm text-gray-600 font-medium')
 
                         stat_card(self.dados['tempo'], "Tempo Total")
